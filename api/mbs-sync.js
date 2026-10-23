@@ -149,6 +149,7 @@ function resolveRole(form,wanted){
   }
   const opts=(form.roleOptions||[]).filter(o=>o.value);
   if(opts.length===1) return opts[0].value;
+  if(target && /^[a-z][a-z0-9_-]*$/i.test(target)) return target.toLowerCase();
   return null;
 }
 function rawAfter(text,marker,from=0){
@@ -206,8 +207,15 @@ module.exports = async function handler(req,res){
     const loginPageRes=await fetchJar(loginUrl,{headers:{'accept':'text/html,application/xhtml+xml','cache-control':'no-cache','pragma':'no-cache'}},jar);
     const loginHtml=await loginPageRes.text();
     if(!loginPageRes.ok) throw new Error('Login page returned HTTP '+loginPageRes.status);
-    const form=parseLoginForm(loginHtml,loginUrl);
-    if(!form) return res.status(502).json({ok:false,error:'LOGIN_FORM_NOT_DETECTED',loginUrl});
+    const effectiveLoginUrl=loginPageRes.url||loginUrl;
+    const form=parseLoginForm(loginHtml,effectiveLoginUrl)||parseJsLogin(loginHtml,effectiveLoginUrl);
+    if(!form) return res.status(502).json({
+      ok:false,
+      error:'LOGIN_REQUEST_NOT_DETECTED',
+      message:'TopBoss login page loaded, but the JavaScript login request could not be detected safely.',
+      loginUrl:effectiveLoginUrl,
+      diagnostics:loginDiagnostics(loginHtml,effectiveLoginUrl)
+    });
 
     const companyField=process.env.MBS_COMPANY_FIELD || form.companyField;
     const passwordField=process.env.MBS_PASSWORD_FIELD || form.passwordField;
