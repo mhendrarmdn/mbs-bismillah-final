@@ -625,7 +625,19 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
         <div class="spacer"></div><div id="harStatus" class="callout">No HAR imported in this session.</div>
       </div>
       <div class="spacer"></div>
-      <div class="card"><h3>What the parser looks for</h3><div class="kpi-strip"><div class="pill">/decide/env<b>Environment</b></div><div class="pill">/analyse/operation<b>Round history</b></div><div class="pill">/report/finance<b>Financials</b></div><div class="pill">/bus/boom<b>Economy</b></div><div class="pill">/decide/rank<b>NPV ranking</b></div><div class="pill">/bus/sales<b>Competitors</b></div></div></div>
+      <div class="card">
+        <h3>What the parser looks for</h3>
+        <div class="kpi-strip">
+          <div class="pill">/decide/env<b>Environment</b></div>
+          <div class="pill">/analyse/operation<b>Round history</b></div>
+          <div class="pill">/report/finance<b>Financials</b></div>
+          <div class="pill">/bus/boom<b>Economy</b></div>
+          <div class="pill">/bus/sales<b>Sales Status • competitor history</b></div>
+          <div class="pill">/decide/rank<b>Rankings • final only</b></div>
+        </div>
+        <div class="spacer"></div>
+        <div class="callout"><b>Live workflow:</b> open <b>Sales Status</b> during every round before exporting the HAR. Its period lists contain competitor price, volume, market share, product quality, and product image by round. <b>Rankings are not required for optimization</b> and are only read after the final round for post-game standings/audit.</div>
+      </div>
     </section>
   </main>
 </div>
@@ -702,6 +714,7 @@ self.onmessage = async (ev) => {
     const economy=rawAfter(page('/bus/boom'),'period_data: ');
     const rank=findCompanyArray(page('/decide/rank'));
     const salesPage=page('/bus/sales');
+    const salesPeriods=rawAfter(salesPage,'period: ');
     const competitors={
       north:rawAfter(salesPage,'north_list: '),
       middle:rawAfter(salesPage,'middle_list: '),
@@ -710,7 +723,7 @@ self.onmessage = async (ev) => {
     };
     self.postMessage({
       type:'done',
-      data:{environment,economy,operation,finance,rank,competitors,entryCount:entries.length}
+      data:{environment,economy,operation,finance,rank,competitors,salesPeriods,entryCount:entries.length}
     });
   }catch(err){
     self.postMessage({type:'error',message:String(err?.message||err)});
@@ -1917,7 +1930,7 @@ function v10RiskFlags(decision){
   if(v10LastStress?.odProb>0.20) flags.push({level:'warn',text:'Stress-test overdraft probability exceeds 20%.'});
   if(v09LastEnsemble?.[0]?.worst<0) flags.push({level:'warn',text:'Robust leader has negative NPV in at least one rival scenario.'});
   if(v09LastPriceProdHeatmap?.total && v09LastPriceProdHeatmap.near1<=2) flags.push({level:'warn',text:'Price/production optimum is narrow: only '+v09LastPriceProdHeatmap.near1+' of '+v09LastPriceProdHeatmap.total+' cells are within 1% of local max.'});
-  if(model.appMode==='competition' && !v10HasCompetitorSnapshot()) flags.push({level:'warn',text:'Competitor snapshot is missing. Rival-scenario results are not decision-grade until a current HAR with sales/competition rows is imported.'});
+  if(model.appMode==='competition' && !v10HasCompetitorSnapshot()) flags.push({level:'warn',text:'Sales Status competitor history is missing. Open Sales Status in TopBoss, then export/import a fresh HAR. Rankings are not needed during live rounds.'});
   if(model.appMode==='competition' && !v03BehaviorModels().demand) flags.push({level:'warn',text:'Demand forecast is prior-assisted because the current game has fewer than 4 usable competitor-aware demand observations. Treat P10/P50/P90 and ensemble robustness as more important than the point forecast.'});
   if(!flags.length) flags.push({level:'ok',text:'No structural block detected. Forecast uncertainty still applies.'});
   return flags;
@@ -2639,7 +2652,10 @@ function importHar(file){
       }
       save();hydrateForms();
       const learned=model.lastReconciliation && Number(model.lastReconciliation.round)===latest;
-      text('#harStatus',`Parsed ${x.entryCount} network entries. Environment, finance and operation loaded.`+(model.gameFinished?' Final round complete; Rankings unlocked.':' Rankings remain hidden until all rounds are complete.')+(learned?' R'+latest+' forecast reconciled and corrections updated.':''));
+      const competitorPeriods=Array.isArray(x.salesPeriods)?x.salesPeriods.length:(Array.isArray(x.competitors?.north)?x.competitors.north.length:0);
+      const salesMsg=competitorPeriods>0?' Sales Status competitor history: '+competitorPeriods+' period(s).':' Sales Status competitor history NOT FOUND — open Sales Status and capture a fresh HAR.';
+      const rankMsg=model.gameFinished?(Array.isArray(model.rank)&&model.rank.length?' Final Rankings captured.':' Final round complete; open Rankings and capture it if you want final standings.'):' Rankings intentionally ignored/hidden until the final round.';
+      text('#harStatus',`Parsed ${x.entryCount} network entries. Environment, finance and operation loaded.`+salesMsg+rankMsg+(learned?' R'+latest+' forecast reconciled and corrections updated.':''));
       worker.terminate();
     }
   };
