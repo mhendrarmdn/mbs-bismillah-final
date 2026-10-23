@@ -228,32 +228,77 @@ module.exports = async function handler(req,res){
       });
     }
 
-    const params=new URLSearchParams(form.fields);
-    params.set(companyField,companyLogin);
-    params.set(passwordField,password);
-    params.set(roleField,roleValue);
-    if(form.submitField?.name) params.set(form.submitField.name,form.submitField.value);
+    const payload={...(form.fields||{})};
+    payload[companyField]=companyLogin;
+    payload[passwordField]=password;
+    payload[roleField]=roleValue;
+    if(form.submitField?.name) payload[form.submitField.name]=form.submitField.value;
+    if(form.csrf && !payload._token) payload._token=form.csrf;
 
     const loginAction=process.env.MBS_LOGIN_ACTION || form.action;
     const method=(process.env.MBS_LOGIN_METHOD || form.method || 'POST').toUpperCase();
-    const loginOpts={
-      method,
-      headers:{
-        'accept':'text/html,application/xhtml+xml',
-        'content-type':'application/x-www-form-urlencoded',
-        'origin':BASE,
-        'referer':loginUrl,
-        'cache-control':'no-cache',
-        'pragma':'no-cache'
-      }
-    };
-    if(method!=='GET') loginOpts.body=params.toString();
-    const actionUrl=method==='GET'?loginAction+(loginAction.includes('?')?'&':'?')+params.toString():loginAction;
-    await fetchJar(actionUrl,loginOpts,jar);
+    let indexHtml=null,lastLoginStatus=null,lastFormat=null;
 
-    const indexHtml=await getPage('/index',jar);
-    if(!/href=["']\/logout/i.test(indexHtml) && !/Sign out/i.test(indexHtml)){
-      return res.status(401).json({ok:false,error:'LOGIN_FAILED',message:'TopBoss did not return an authenticated dashboard.'});
+    async function tryLogin(format){
+      const headers={
+        'accept':'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8',
+        'origin':BASE,
+        'referer':effectiveLoginUrl,
+        'cache-control':'no-cache',
+        'pragma':'no-cache',
+        'x-requested-with':'XMLHttpRequest'
+      };
+      if(form.csrf) headers['x-csrf-token']=form.csrf;
+      let actionUrl=loginAction,body;
+      if(format==='json'){
+        headers['content-type']='application/json';
+        body=JSON.stringify(payload);
+      }else{
+        headers['content-type']='application/x-www-form-urlencoded';
+        const params=new URLSearchParams(payload);
+        body=params.toString();
+        if(method==='GET'){
+          actionUrl=loginAction+(loginAction.includes('?')?'&':'?')+body;
+          body=undefined;
+        }
+      }
+      const lr=await fetchJar(actionUrl,{method,headers,body:method==='GET'?undefined:body},jar);
+      lastLoginStatus=lr.status; lastFormat=format;
+      try{await lr.text();}catch(_){}
+
+      const probe=await fetchJar(new URL('/index',BASE).toString(),{
+        headers:{'accept':'text/html,application/xhtml+xml','cache-control':'no-cache','pragma':'no-cache','referer':effectiveLoginUrl}
+      },jar);
+      const text=await probe.text();
+      const user=rawAfter(text,'user: ');
+      if(probe.ok && user?.company_name){
+        indexHtml=text;
+        return true;
+      }
+      return false;
+    }
+
+    const formats=form.mode==='js'?['json','form']:['form','json'];
+    let authenticated=false;
+    for(const format of formats){
+      try{
+        if(await tryLogin(format)){authenticated=true;break;}
+      }catch(_){}
+    }
+    if(!authenticated){
+      return res.status(401).json({
+        ok:false,
+        error:'LOGIN_FAILED',
+        message:'TopBoss login request was detected, but no authenticated session was created.',
+        detected:{
+          mode:form.mode||'form',
+          detectedBy:form.detectedBy||null,
+          action:loginAction,
+          companyField,passwordField,roleField,roleValue,
+          lastLoginStatus,lastFormat
+        },
+        diagnostics:loginDiagnostics(loginHtml,effectiveLoginUrl)
+      });
     }
 
     const user=rawAfter(indexHtml,'user: ');
