@@ -1452,6 +1452,168 @@ function v08CompareLearning(){
   text('#impactDecisionChange',bd&&ad?(changed?'YES':'NO'):'—');
 }
 
+
+/* v0.9 — first-decision sensitivity and rival-scenario ensemble */
+let v09LastEnsemble=null;
+
+function v09Controls(beam=7){
+  return {
+    beam,
+    risk:$('#rollRisk')?.value||'balanced',
+    range:'tight'
+  };
+}
+function v09ContinueFromState(startState,startRound,controls,models){
+  let beam=[startState], end=Number(model.totalRounds);
+  for(let round=startRound;round<=end;round++){
+    const next=[];
+    for(const st of beam){
+      const cand=v03CandidateDecisions(st,round,models,controls);
+      for(const d of cand){
+        const tr=v03Transition(st,d,round,models),ns=tr.state;
+        if(!Number.isFinite(ns.equity)||ns.equity<=0) continue;
+        const score=round===end?v03TerminalValue(ns).npv.value:v03PartialScore(ns,round,controls);
+        next.push({state:ns,score});
+      }
+    }
+    next.sort((a,b)=>b.score-a.score);
+    beam=next.slice(0,controls.beam).map(x=>x.state);
+    if(!beam.length) return null;
+  }
+  beam.sort((a,b)=>v03TerminalValue(b).npv.value-v03TerminalValue(a).npv.value);
+  const best=beam[0];
+  return {best,terminal:v03TerminalValue(best)};
+}
+function v09EvaluateFixedFirst(decision,beamWidth=7){
+  const models=v03BehaviorModels(),round=Number(model.currentRound),state=v03BaseState();
+  const tr=v03Transition(state,decision,round,models);
+  if(!Number.isFinite(tr.state.equity)||tr.state.equity<=0) return null;
+  if(round>=Number(model.totalRounds)) return {best:tr.state,terminal:v03TerminalValue(tr.state),first:tr.state.path[0]};
+  const cont=v09ContinueFromState(tr.state,round+1,v09Controls(beamWidth),models);
+  if(!cont) return null;
+  return {...cont,first:tr.state.path[0]};
+}
+function v09BaselineDecision(){
+  return {...(v03LastRollingResult?.best?.path?.[0]?.decision||model.decision)};
+}
+function v09CompactMoney(v){
+  const n=Number(v||0),a=Math.abs(n);
+  if(a>=1000000)return (n/1000000).toFixed(2)+'M';
+  if(a>=1000)return (n/1000).toFixed(0)+'k';
+  return n.toFixed(0);
+}
+function v09HeatClass(v,min,max){
+  if(!Number.isFinite(v)||max<=min)return 'heat-2';
+  const z=(v-min)/(max-min);
+  return 'heat-'+Math.max(0,Math.min(5,Math.floor(z*5.999)));
+}
+function v09RenderMatrix(tableId,rowLabels,colLabels,values,rowTitle){
+  const flat=values.flat().filter(Number.isFinite),min=Math.min(...flat),max=Math.max(...flat);
+  let out='<thead><tr><th>'+rowTitle+'</th>'+colLabels.map(x=>'<th>'+x+'</th>').join('')+'</tr></thead><tbody>';
+  for(let i=0;i<values.length;i++){
+    out+='<tr><th>'+rowLabels[i]+'</th>';
+    for(let j=0;j<values[i].length;j++){
+      const v=values[i][j],cls=v09HeatClass(v,min,max);
+      out+='<td class="heatcell '+cls+'" title="'+E.money(v)+'">'+v09CompactMoney(v)+'</td>';
+    }
+    out+='</tr>';
+  }
+  out+='</tbody>';
+  html(tableId,out);
+  return {min,max,spread:max-min};
+}
+function v09RunPriceProductionHeatmap(){
+  const base=v09BaselineDecision(),priceSteps=[-0.20,-0.10,0,0.10,0.20],prodMult=[0.94,0.97,1,1.03,1.06];
+  html('#ppHeatmapStatus','Evaluating 25 first-decision variants and re-optimizing the remaining horizon…');
+  const vals=[];
+  for(const pm of prodMult){
+    const row=[];
+    for(const ps of priceSteps){
+      const d={...base,price:Math.max(3,Math.round((Number(base.price||0)+ps)*100)/100),production:Math.max(0,Math.round(Number(base.production||0)*pm/1000)*1000)};
+      const x=v09EvaluateFixedFirst(d,6);
+      row.push(x?.terminal?.npv?.value??NaN);
+    }
+    vals.push(row);
+  }
+  const result=v09RenderMatrix('#ppHeatmapTable',prodMult.map(x=>(x*100).toFixed(0)+'% prod'),priceSteps.map(x=>E.money(Number(base.price||0)+x)),vals,'Production');
+  html('#ppHeatmapStatus','Heatmap centered on <b>'+E.money(base.price)+'</b> and <b>'+E.num(base.production)+'</b> units. Cells show terminal NPV after continuation re-optimization.');
+  text('#sensLocalMax',E.money(result.max));text('#sensLocalMin',E.money(result.min));text('#sensLocalSpread',E.money(result.spread));
+  return result;
+}
+function v09RunSupportHeatmap(){
+  const base=v09BaselineDecision(),mult=[0.70,0.85,1,1.15,1.30],state=v03BaseState(),models=v03BehaviorModels();
+  html('#supportHeatmapStatus','Evaluating support-spend neighborhood…');
+  const vals=[];
+  for(const mm of mult){
+    const row=[];
+    for(const rr of mult){
+      const d={...base,marketing:Math.max(0,Math.round(Number(base.marketing||0)*mm/5000)*5000),rd:Math.max(0,Math.round(Number(base.rd||0)*rr/5000)*5000)};
+      const b=v03PredictBehavior(state,d,Number(model.currentRound),models);
+      d.production=Math.max(0,Math.round((b.demand*1.01-Number(state.finishedGoods||0))/1000)*1000);
+      const x=v09EvaluateFixedFirst(d,6);
+      row.push(x?.terminal?.npv?.value??NaN);
+    }
+    vals.push(row);
+  }
+  const result=v09RenderMatrix('#supportHeatmapTable',mult.map(x=>(x*100).toFixed(0)+'% Mkt'),mult.map(x=>(x*100).toFixed(0)+'% R&D'),vals,'Marketing');
+  html('#supportHeatmapStatus','Support-spend heatmap recenters production to modeled demand so the table focuses on commercial-spend trade-offs rather than accidental stockouts.');
+  return result;
+}
+function v09DecisionKey(d){
+  const k=['price','production','marketing','rd','procurement','maintenance','equipment','dividend'];
+  return k.map(x=>Math.round(Number(d?.[x]||0)*100)/100).join('|');
+}
+function v09Std(a){
+  if(!a.length)return 0;const m=a.reduce((x,y)=>x+y,0)/a.length;
+  return Math.sqrt(a.reduce((x,y)=>x+(y-m)*(y-m),0)/a.length);
+}
+function v09RunScenarioEnsemble(){
+  const scenarios=['hold','pricewar','stronger','adverse'],labels={hold:'Hold',pricewar:'Price War',stronger:'Stronger',adverse:'Adverse'};
+  const previous=model.competitorScenario||'hold',candidates=[],seen=new Set();
+  html('#ensembleStatus','Generating candidate first decisions from four rival scenarios…');
+  try{
+    for(const sc of scenarios){
+      model.competitorScenario=sc;
+      const res=v03RunRollingOptimizer();
+      const d=res?.best?.path?.[0]?.decision;
+      if(d){
+        const key=v09DecisionKey(d);
+        if(!seen.has(key)){seen.add(key);candidates.push({source:labels[sc],decision:{...d}});}
+      }
+    }
+    const current=v09BaselineDecision(),ck=v09DecisionKey(current);
+    if(!seen.has(ck)) candidates.push({source:'Current/Baseline',decision:{...current}});
+    const ranked=[];
+    for(const c of candidates){
+      const npvs=[];
+      for(const sc of scenarios){
+        model.competitorScenario=sc;
+        const x=v09EvaluateFixedFirst(c.decision,6);
+        npvs.push(x?.terminal?.npv?.value??-Infinity);
+      }
+      const finite=npvs.filter(Number.isFinite);
+      if(!finite.length)continue;
+      const mean=finite.reduce((a,b)=>a+b,0)/finite.length,worst=Math.min(...finite),best=Math.max(...finite),sd=v09Std(finite);
+      const robust=mean-0.35*sd;
+      ranked.push({...c,npvs,mean,worst,best,sd,robust});
+    }
+    ranked.sort((a,b)=>b.robust-a.robust);
+    v09LastEnsemble=ranked;
+    html('#ensembleBody',ranked.map((x,i)=>'<tr><td>#'+(i+1)+'</td><td>'+x.source+'</td><td>'+E.money(x.decision.price)+'</td><td>'+E.num(x.decision.production)+'</td><td>'+E.money(x.decision.marketing)+'</td><td>'+E.money(x.decision.rd)+'</td><td>'+E.money(x.worst)+'</td><td>'+E.money(x.mean)+'</td><td>'+E.money(x.best)+'</td><td>'+E.money(x.sd)+'</td><td><b>'+E.money(x.robust)+'</b></td><td><button class="btn smallbtn" data-ensemble-pick="'+i+'">Apply</button></td></tr>').join(''));
+    $$('[data-ensemble-pick]').forEach(b=>b.onclick=()=>{
+      const x=v09LastEnsemble?.[Number(b.dataset.ensemblePick)]; if(!x)return;
+      model.decision={...model.decision,...x.decision};
+      save();hydrateForms();nav('decision');
+    });
+    if(ranked.length){text('#sensRobustLeader',ranked[0].source+' • '+E.money(ranked[0].robust));}
+    html('#ensembleStatus','Ranked <b>'+ranked.length+'</b> unique first-decision packages across all four rival scenarios. Robust score = mean NPV − 0.35 × NPV standard deviation.');
+    return ranked;
+  } finally {
+    model.competitorScenario=previous;
+    setv('#rollCompScenario',previous);
+  }
+}
+
 /* v0.7 — RM cash-price forecast + locked submission snapshots + live reconciliation */
 function v07Ensure(){
   if(!model.submissionSnapshots) model.submissionSnapshots={};
