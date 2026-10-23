@@ -1825,7 +1825,7 @@ function v09RunPriceProductionHeatmap(){
   }
   const result=v09RenderMatrix('#ppHeatmapTable',prodMult.map(x=>(x*100).toFixed(0)+'% prod'),priceSteps.map(x=>E.price(Number(base.price||0)+x)),vals,'Production');
   v09LastPriceProdHeatmap={base:{...base},priceSteps,prodMult,values:vals,...result};
-  html('#ppHeatmapStatus','Heatmap centered on <b>'+E.price(base.price)+'</b> and <b>'+E.num(base.production)+'</b> finished units. <b>'+result.near1+'/'+result.total+'</b> cells are within 1% of the local max; <b>'+result.near3+'/'+result.total+'</b> are within 3%. More near-optimal cells usually means a broader, less fragile optimum.');
+  html('#ppHeatmapStatus','Heatmap centered on <b>'+E.price(base.price)+'</b> per finished unit and <b>'+E.num(base.production)+'</b> finished units. <b>'+result.near1+'/'+result.total+'</b> cells are within 1% of the local max; <b>'+result.near3+'/'+result.total+'</b> are within 3%. Darker blue means higher projected terminal NPV <b>relative to the other tested cells</b>, not an absolute performance grade.');
   text('#sensLocalMax',E.money(result.max));text('#sensLocalMin',E.money(result.min));text('#sensLocalSpread',E.money(result.spread));
   return result;
 }
