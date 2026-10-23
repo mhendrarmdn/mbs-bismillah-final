@@ -61,3 +61,15 @@ v0.4 adds a stress test around the selected rolling path. It perturbs demand and
 - probability that terminal NPV remains positive
 
 This is a model-risk sensitivity band, not a formal confidence interval.
+
+
+## Walk-forward / live-safe calibration
+
+v0.5 prevents same-game future rounds from being used to fit the live competitor-aware models.
+
+- At round t, current-game response models are fitted only through round t-1.
+- If the current game has too few observations, the app falls back to a Simulation-1 prior model for demand and conversion.
+- Once live demand is observed, the prior demand level is scaled toward the current game's realized market level.
+- Backtest diagnostics use the same round-by-round information cutoff.
+
+This reduces retrospective look-ahead bias, but the Simulation-1 prior can still be structurally wrong if the competition environment differs materially.
