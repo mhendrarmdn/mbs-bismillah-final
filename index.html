@@ -2704,6 +2704,13 @@ async function v16SyncFromMBS(){
       if(body.detected){
         const d=body.detected;
         lines.push('<span class="small muted">Detected: mode '+esc(d.mode||'—')+' • action '+esc(d.action||'—')+' • company field '+esc(d.companyField||'—')+' • role field '+esc(d.roleField||'—')+' • role value '+esc(d.roleValue||'—')+' • password field '+esc(d.passwordField||'—')+(d.lastFormat?' • format '+esc(d.lastFormat):'')+(d.lastLoginStatus!=null?' • HTTP '+esc(d.lastLoginStatus):'')+'</span>');
+        if(Array.isArray(d.roleCandidates) && d.roleCandidates.length){
+          lines.push('<span class="small muted">Role candidates tried: '+esc(d.roleCandidates.join(', '))+'</span>');
+        }
+        if(Array.isArray(d.loginAttempts) && d.loginAttempts.length){
+          const attempts=d.loginAttempts.map(a=>'role '+(a.roleValue??'—')+' / '+(a.format||'—')+' / HTTP '+(a.status??'—')).join(' • ');
+          lines.push('<span class="small muted">Login attempts: '+esc(attempts)+'</span>');
+        }
         if(d.lastLoginResponse){
           const lr=d.lastLoginResponse;
           const summary=lr.json?Object.entries(lr.json).map(([k,v])=>k+'='+v).join(' • '):(lr.preview||'');
