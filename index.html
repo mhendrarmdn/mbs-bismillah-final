@@ -57,7 +57,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
   <main class="main">
     <div class="topbar">
       <div><h2 id="pageTitle">Control Center</h2><p id="pageSub">Structural decision engine • verified mechanics first</p></div>
-      <div class="actions"><button id="useSample" class="btn">Load Simulation 1 sample</button><button id="exportWorkspace" class="btn">Export workspace</button><label class="btn">Import workspace<input id="workspaceFile" type="file" accept=".json" hidden></label><button id="newGame" class="btn danger">New game</button></div>
+      <div class="actions"><span id="modeBadge" class="badge info">Practice</span><button id="useSample" class="btn">Load Simulation 1 sample</button><button id="exportWorkspace" class="btn">Export workspace</button><label class="btn">Import workspace<input id="workspaceFile" type="file" accept=".json" hidden></label><button id="newGame" class="btn danger">New game</button></div>
     </div>
 
     <section id="dashboard" class="section active">
@@ -91,6 +91,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
       <div class="grid g2">
         <div class="card"><h3>Game configuration</h3>
           <div class="form-grid">
+            <div class="field"><label>App mode</label><select id="appMode"><option value="practice">Practice / Retrospective</option><option value="competition">Competition / Live-safe</option></select></div>
             <div class="field"><label>Total rounds</label><input id="totalRounds" type="number"></div>
             <div class="field"><label>Current round</label><input id="currentRound" type="number"></div>
             <div class="field"><label>Annual discount / interest rate (%)</label><input id="annualRate" type="number" step=".1"></div>
@@ -614,6 +615,7 @@ const initialSample = {"environment":{"teams":16,"tax_rate":"Moderate","tax_dedu
 
 let model={
   source:'Simulation 1 sample',
+  appMode:'practice',
   totalRounds:4,
   currentRound:1,
   equityFloor:10000000,
@@ -669,6 +671,7 @@ function nav(id){
 $$('.nav button').forEach(b=>b.onclick=()=>nav(b.dataset.target));
 
 function hydrateForms(){
+  setv('#appMode',model.appMode||'practice');
   setv('#totalRounds',model.totalRounds); setv('#currentRound',model.currentRound); setv('#equityFloor',model.equityFloor);
   setv('#initialEquity',model.initialEquity);
   setv('#annualRate',model.environment.annual_interest_rate);
@@ -695,6 +698,7 @@ function hydrateForms(){
 }
 
 function readForms(){
+  model.appMode=$('#appMode').value||'practice';
   model.totalRounds=val('#totalRounds'); model.currentRound=val('#currentRound'); model.equityFloor=val('#equityFloor');
   model.initialEquity=val('#initialEquity');
   model.environment.annual_interest_rate=val('#annualRate');
@@ -972,7 +976,7 @@ function v03LinearFit(rows,lambda=1.5){
   const residualSd=Math.sqrt(sse/Math.max(1,rows.length-1));
   return {beta,means,sds,predict,r2:1-sse/sst,mae,rmse,residualSd,n:rows.length};
 }
-function v03BehaviorModels(maxRound=Math.max(0,Number(model.currentRound||1)-1)){
+function v03BehaviorModels(maxRound=(model.appMode==='practice' ? Math.max(0,(v03Dataset().operation||[]).length-1) : Math.max(0,Number(model.currentRound||1)-1))){
   const data=v03Dataset(), op=data.operation||[], own=v03InferOwnCompany(data);
   if(!own || !v03North(data) || op.length<4) return {own,demand:null,quality:null,image:null,conversion:null};
   const dRows=[],qRows=[],iRows=[],cRows=[];
@@ -1291,6 +1295,52 @@ function v03ApplyRollingFirst(){
 
 
 /* v0.4 — historical audit, walk-back validation, and uncertainty stress testing */
+
+/* v0.6 — explicit practice/competition mode + team submission checklist */
+function v06RenderSubmission(){
+  const d=model.decision,c=calculations(),f=v02Forecast(d);
+  text('#modeBadge',model.appMode==='competition'?'Competition • live-safe':'Practice • retrospective');
+  $('#modeBadge').className='badge '+(model.appMode==='competition'?'ok':'info');
+  text('#subPrice',E.money(d.price));text('#subProduction',E.num(d.production));
+  text('#subMarketing',E.money(d.marketing));text('#subRD',E.money(d.rd));
+  text('#subProcurement',E.num(d.procurement));text('#subMaintenance',E.money(d.maintenance));
+  text('#subEquipment',E.money(d.equipment));text('#subDividend',E.money(d.dividend));
+  const w=[];
+  const cap=Number(model.state.capacity||0), maxProd=1.5*cap;
+  if(Number(d.production)>maxProd) w.push('<b>BLOCK:</b> production exceeds modeled 150% overtime capacity.');
+  if(c.rmNeed>Number(model.state.rawMaterial||0)) w.push('<b>BLOCK:</b> current raw material may be insufficient for requested production.');
+  if(c.actualDiv<Number(d.dividend||0)) w.push('Dividend will be capped from '+E.money(d.dividend)+' to approximately '+E.money(c.actualDiv)+' by the equity-floor rule.');
+  if(model.currentRound===model.totalRounds && Number(d.procurement||0)>0) w.push('Final-round procurement is non-zero; verify that this is intentional.');
+  if(f.warnings?.length) w.push(...f.warnings);
+  if(!w.length) w.push('<b>Structural checks passed.</b> Forecast relationships remain calibrated, so review demand uncertainty before submission.');
+  html('#submissionWarnings',w.map(x=>'• '+x).join('<br>'));
+}
+function v06SubmissionText(){
+  const d=model.decision;
+  return [
+    'MBS ROUND '+model.currentRound+' / '+model.totalRounds,
+    'Mode: '+(model.appMode||'practice'),
+    'Price: '+Number(d.price||0).toFixed(2),
+    'Production: '+Math.round(Number(d.production||0)),
+    'Marketing: '+Math.round(Number(d.marketing||0)),
+    'R&D: '+Math.round(Number(d.rd||0)),
+    'Procurement: '+Math.round(Number(d.procurement||0)),
+    'Maintenance: '+Math.round(Number(d.maintenance||0)),
+    'Equipment: '+Math.round(Number(d.equipment||0)),
+    'Dividend: '+Math.round(Number(d.dividend||0))
+  ].join('\n');
+}
+async function v06CopySubmission(){
+  const t=v06SubmissionText();
+  try{await navigator.clipboard.writeText(t);alert('Eight decisions copied to clipboard.');}
+  catch(_){prompt('Copy these decisions:',t);}
+}
+function v06DownloadDecision(){
+  const payload={round:model.currentRound,totalRounds:model.totalRounds,mode:model.appMode,environment:model.environment,state:model.state,decision:model.decision,generatedAt:new Date().toISOString()};
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='mbs-round-'+model.currentRound+'-decision.json';a.click();URL.revokeObjectURL(a.href);
+}
+
 function v04OwnRankContext(){
   const data=v03Dataset(), own=v03InferOwnCompany(data), rank=data.rank||[];
   const ours=rank.find(x=>x.company_name===own)||null;
@@ -1704,14 +1754,17 @@ restore(); hydrateForms();
 v02Render();
 try{v03RenderRollingDiagnostics();}catch(e){console.warn(e);}
 try{v04RenderBacktest();}catch(e){console.warn(e);}
+try{v06RenderSubmission();}catch(e){console.warn(e);}
 const _baseRender=render;
-render=function(){ _baseRender(); try{v02Render();}catch(e){console.warn('v0.2 render',e);} try{v03RenderRollingDiagnostics();}catch(e){console.warn('v0.3 diagnostics',e);} try{v04RenderBacktest();}catch(e){console.warn('v0.4 backtest',e);} };
+render=function(){ _baseRender(); try{v02Render();}catch(e){console.warn('v0.2 render',e);} try{v03RenderRollingDiagnostics();}catch(e){console.warn('v0.3 diagnostics',e);} try{v04RenderBacktest();}catch(e){console.warn('v0.4 backtest',e);} try{v06RenderSubmission();}catch(e){console.warn('v0.6 submission',e);} };
 $('#recalibrateDemand').onclick=()=>v02Render();
 $('#refreshScenarios').onclick=()=>v02Render();
 $('#runFinalSearch').onclick=()=>v03FinalCandidateSearch();
 $('#runRolling').onclick=()=>{html('#rollStatus','Running rolling search…');setTimeout(()=>{try{v03LastRollingResult=v03RunRollingOptimizer();v03RenderRollingResult(v03LastRollingResult);}catch(e){html('#rollStatus','<b>Search error:</b> '+e.message);console.error(e);}},20);};
 $('#applyRollingFirst').onclick=()=>v03ApplyRollingFirst();
 $('#runStress').onclick=()=>{html('#stressStatus','Running uncertainty simulations…');setTimeout(()=>{try{v04RenderStress(v04StressBestPath(300));}catch(e){html('#stressStatus','<b>Stress-test error:</b> '+e.message);console.error(e);}},20);};
+$('#copySubmission').onclick=()=>v06CopySubmission();
+$('#downloadDecision').onclick=()=>v06DownloadDecision();
 $('#applyPredictedDemand').onclick=()=>{model.decision.expectedDemand=Math.round(v02PredictDemand(model.decision));save();hydrateForms();v02Render();};
 $('[data-apply-scenario]').forEach(b=>b.onclick=()=>v02ApplyScenario(b.dataset.applyScenario));
 </script>
