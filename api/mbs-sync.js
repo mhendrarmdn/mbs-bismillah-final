@@ -154,8 +154,36 @@ function resolveRole(form,wanted){
   }
   const opts=(form.roleOptions||[]).filter(o=>o.value);
   if(opts.length===1) return opts[0].value;
-  if(target && /^[a-z][a-z0-9_-]*$/i.test(target)) return target;
+  // Vue-driven TopBoss login pages render role options dynamically.
+  // Preserve the configured value exactly (for example "CEO"), because
+  // lowercasing it to "ceo" can make /login/authed reject the login.
+  if(raw && /^[a-z][a-z0-9_-]*$/i.test(raw)) return raw;
   return null;
+}
+function safeLoginResponse(text,headers,secrets=[]){
+  const redact=value=>{
+    let out=String(value??'');
+    for(const secret of secrets){
+      const s=String(secret??'');
+      if(s) out=out.split(s).join('[redacted]');
+    }
+    return out.replace(/\s+/g,' ').trim().slice(0,240);
+  };
+  const out={contentType:headers?.get?.('content-type')||null};
+  try{
+    const json=JSON.parse(String(text||''));
+    const summary={};
+    for(const key of ['code','status','success','message','msg','error','redirect','redirect_url','url','location']){
+      const value=json?.[key] ?? json?.data?.[key];
+      if(['string','number','boolean'].includes(typeof value)) summary[key]=redact(value);
+    }
+    if(Object.keys(summary).length) out.json=summary;
+    else out.jsonKeys=json&&typeof json==='object'?Object.keys(json).slice(0,12):[];
+  }catch(_){
+    const plain=redact(String(text||'').replace(/<script[\s\S]*?<\/script>/gi,' ').replace(/<style[\s\S]*?<\/style>/gi,' ').replace(/<[^>]+>/g,' '));
+    if(plain) out.preview=plain;
+  }
+  return out;
 }
 function rawAfter(text,marker,from=0){
   const pos=String(text||'').indexOf(marker,from); if(pos<0) return null;
@@ -242,7 +270,7 @@ module.exports = async function handler(req,res){
 
     const loginAction=process.env.MBS_LOGIN_ACTION || form.action;
     const method=(process.env.MBS_LOGIN_METHOD || form.method || 'POST').toUpperCase();
-    let indexHtml=null,lastLoginStatus=null,lastFormat=null;
+    let indexHtml=null,lastLoginStatus=null,lastFormat=null,lastLoginResponse=null,lastCookieNames=[];
 
     async function tryLogin(format){
       const headers={
@@ -278,6 +306,8 @@ module.exports = async function handler(req,res){
       lastLoginStatus=lr.status; lastFormat=format;
       let loginText='';
       try{loginText=await lr.text();}catch(_){}
+      lastLoginResponse=safeLoginResponse(loginText,lr.headers,[companyLogin,password]);
+      lastCookieNames=[...jar.keys()].slice(0,12);
 
       const loginUser=rawAfter(loginText,'user: ');
       if(lr.ok && loginUser?.company_name){
@@ -354,7 +384,7 @@ module.exports = async function handler(req,res){
           detectedBy:form.detectedBy||null,
           action:loginAction,
           companyField,passwordField,roleField,roleValue,
-          lastLoginStatus,lastFormat
+          lastLoginStatus,lastFormat,lastLoginResponse,lastCookieNames
         },
         diagnostics:loginDiagnostics(loginHtml,effectiveLoginUrl)
       });
