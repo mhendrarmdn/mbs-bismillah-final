@@ -87,3 +87,24 @@ v0.7 adds a deliberately short-memory correction layer for live competition use:
 6. Re-run the rolling optimizer for the next round.
 
 The correction is shrunk once a current-game response model has enough observations, so one noisy round does not permanently dominate the forecast.
+
+
+## Competitor scenario branching
+
+v0.8 no longer requires a single frozen-rival assumption for every future round. The rolling optimizer can be stress-tested under:
+- Hold latest observed competitor position
+- Price war: average rival price -3%
+- Stronger rivals: higher average quality and image
+- Adverse mix: lower rival price plus stronger quality/image and slightly higher rival volume
+
+These are user-selected stress scenarios, not forecasts of competitor intent.
+
+## Learning-impact comparison
+
+The app can temporarily neutralize the short-memory live correction factors, run the rolling optimizer, then restore learned corrections and run it again. It reports:
+- terminal NPV before learning
+- terminal NPV after learning
+- delta NPV
+- whether the first recommended decision package changed
+
+This helps distinguish a material post-round learning update from a cosmetic one.
