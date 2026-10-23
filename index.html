@@ -296,6 +296,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
             <div class="field"><label>Beam width</label><select id="rollBeam"><option value="8">8 — Fast</option><option value="16" selected>16 — Balanced</option><option value="28">28 — Deep</option></select></div>
             <div class="field"><label>Risk profile</label><select id="rollRisk"><option value="npv">NPV first</option><option value="balanced" selected>Balanced</option><option value="cashsafe">Cash safe</option></select></div>
             <div class="field"><label>Commercial range</label><select id="rollRange"><option value="tight">Tight</option><option value="normal" selected>Normal</option><option value="wide">Wide</option></select></div>
+            <div class="field"><label>Future rival scenario</label><select id="rollCompScenario"><option value="hold">Hold latest</option><option value="pricewar">Price war (-3%)</option><option value="stronger">Stronger quality/image</option><option value="adverse">Adverse mix</option></select></div>
           </div>
           <div class="spacer"></div>
           <div class="actions"><button id="runRolling" class="btn gold">Run rolling optimizer</button><button id="applyRollingFirst" class="btn primary" disabled>Apply first decision</button></div>
@@ -381,6 +382,14 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
           <tbody id="learningBody"><tr><td colspan="4" class="muted">No reconciled submitted round yet.</td></tr></tbody>
         </table></div>
         <div class="spacer"></div><div id="learningStatus" class="callout">Use <b>Lock forecast snapshot</b> immediately before submitting a round.</div>
+        <div class="spacer"></div>
+        <div class="title-row"><h3 style="font-size:14px">Learning Impact on Optimizer</h3><button id="compareLearning" class="btn">Compare before vs after</button></div>
+        <div class="grid g4">
+          <div class="pill">Before-learning NPV<b id="impactBeforeNPV">—</b></div>
+          <div class="pill">After-learning NPV<b id="impactAfterNPV">—</b></div>
+          <div class="pill">NPV change<b id="impactDeltaNPV">—</b></div>
+          <div class="pill">First decision changed?<b id="impactDecisionChange">—</b></div>
+        </div>
       </div>
 
       <div class="spacer"></div>
@@ -402,6 +411,16 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
           <div class="pill">Conversion sigma used<b id="stressConvSigma">—</b></div>
           <div class="pill">RM price sigma used<b id="stressRMSigma">—</b></div>
         </div>
+      </div>
+
+      <div class="spacer"></div>
+      <div class="card">
+        <div class="title-row"><div><h3>Round Journal</h3><div class="small muted">Automatic audit trail of locked submissions and post-round reconciliation.</div></div><button id="exportJournal" class="btn">Export journal</button></div>
+        <div class="spacer"></div>
+        <div class="scroll"><table>
+          <thead><tr><th>Time</th><th>Round</th><th>Event</th><th>Summary</th></tr></thead>
+          <tbody id="journalBody"><tr><td colspan="4" class="muted">No journal entries yet.</td></tr></tbody>
+        </table></div>
       </div>
 
       <div class="spacer"></div>
@@ -675,7 +694,9 @@ let model={
   rank:[],
   submissionSnapshots:{},
   calibration:{demandScale:1,conversionBias:0,rawPriceScale:1,lastReconciledRound:0},
-  lastReconciliation:null
+  lastReconciliation:null,
+  roundJournal:[],
+  competitorScenario:'hold'
 };
 
 function save(){localStorage.setItem('mbsEngineMVP',JSON.stringify(model));}
