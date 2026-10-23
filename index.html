@@ -52,7 +52,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
       <button data-target="audit"><span class="ico">✓</span> Formula Audit</button>
       <button data-target="import"><span class="ico">⇩</span> HAR Import</button>
     </div>
-    <div class="side-note">MVP v0.1<br>Structural engine is based on verified Simulation 1 mechanics. Demand-response calibration is intentionally not guessed.</div>
+    <div class="side-note">v0.4 • rolling + uncertainty<br>Structural engine is based on verified Simulation 1 mechanics. Demand-response calibration is intentionally not guessed.</div>
   </aside>
   <main class="main">
     <div class="topbar">
@@ -1224,11 +1224,162 @@ function v03RenderRollingResult(res){
   html('#rollingPathBody',st.path.map(x=>'<tr><td>R'+x.round+'</td><td>'+E.money(x.decision.price)+'</td><td>'+E.num(x.production)+'</td><td>'+E.money(x.decision.marketing)+'</td><td>'+E.money(x.decision.rd)+'</td><td>'+E.num(x.decision.procurement)+'</td><td>'+E.money(x.decision.maintenance)+'</td><td>'+E.money(x.decision.equipment)+'</td><td>'+E.money(x.decision.dividend)+'</td><td>'+E.num(x.demand)+'</td><td>'+E.num(x.sales)+'</td><td>'+E.money(x.netProfit)+'</td><td>'+E.money(x.cashEnd)+'</td><td>'+E.money(x.equity)+'</td></tr>').join(''));
   text('#rollNPV',E.money(t.npv.value));text('#rollEE',E.money(t.ee));text('#rollPVDiv',E.money(t.npv.pvDividends));text('#rollOverdraft',E.money(st.maxOverdraft||0));
   $('#applyRollingFirst').disabled=!st.path.length;
+  try{v04ExplainFirstDecision(res);}catch(e){console.warn('explain',e);}
 }
 function v03ApplyRollingFirst(){
   const first=v03LastRollingResult?.best?.path?.[0]; if(!first)return;
   model.decision={...model.decision,...first.decision,expectedDemand:Math.round(first.demand),production:Math.round(first.decision.production)};
   save();hydrateForms();nav('decision');
+}
+
+
+/* v0.4 — historical audit, walk-back validation, and uncertainty stress testing */
+function v04OwnRankContext(){
+  const data=v03Dataset(), own=v03InferOwnCompany(data), rank=data.rank||[];
+  const ours=rank.find(x=>x.company_name===own)||null;
+  const winner=rank.length?[...rank].sort((a,b)=>Number(b.npv)-Number(a.npv))[0]:null;
+  return {own,ours,winner};
+}
+function v04HistoricalStartState(round){
+  const data=v03Dataset(), fin=data.finance||{}, op=data.operation||[], models=v03BehaviorModels();
+  const prev=Math.max(0,round-1), pf=fin[String(prev)], po=op[prev];
+  if(!pf||!po) return null;
+  const row=models.own?v03OwnSalesRow(data,prev,models.own):null;
+  const piPrev=Number(data.economy?.[prev]?.inflation_index||100)/100||1;
+  const piNow=Number(data.economy?.[round]?.inflation_index||100)/100||piPrev;
+  return {
+    round,cash:Number(pf.balance?.cash||0),equity:Number(pf.balance?.equity||0),
+    rawMaterial:Number(po.production?.raw_material_inventory_end||0),
+    rawMaterialUnitCost:Number(pf.balance?.mat_unit_cost||1),
+    finishedGoods:Number(po.production?.finished_goods_inventory||0),
+    finishedGoodsUnitCost:Number(pf.balance?.finished_goods_unit_cost||3*piPrev),
+    equipmentBV:Number(pf.balance?.equipment_value||0),
+    capacity:Number(po.production?.production_capacity_next||0),
+    replacementCost:Number(pf.balance?.recapitalized_cost||0),
+    conversion:Number(po.inventory?.efficiency||0.67),
+    normalDebt:Number(pf.balance?.normal_debt||0),abnormalDebt:Number(pf.balance?.abnormal_debt||0),
+    productQuality:Number(row?.product_quality||0.3),productImage:Number(row?.product_image||0.6),
+    marketShare:Number(row?.market_share||0),
+    materialPurchasePrice:Number(pf.cash_flow?.mat_price||1),
+    laborUnit:Number(pf.income?.unit_labor_cost||1.5)*(piNow/Math.max(piPrev,0.0001)),
+    deferredDemand:Math.max(0,Number(po.sales?.potential_demand||0)-Number(po.sales?.volume||0))*0.5,
+    dividends:Object.keys(fin).map(Number).filter(r=>r>=1&&r<round).sort((a,b)=>a-b).map(r=>Number(fin[String(r)]?.cash_flow?.stock_dividend_issue||0)),
+    maxOverdraft:Number(pf.balance?.abnormal_debt||0),path:[]
+  };
+}
+function v04ActualDecision(round){
+  const o=v03Dataset().operation?.[round]; if(!o?.decision) return null;
+  return {
+    price:Number(o.decision.price||0),production:Number(o.decision.production||0),
+    marketing:Number(o.decision.marketing||0),rd:Number(o.decision.rd||0),
+    procurement:Number(o.decision.purchase||0),maintenance:Number(o.decision.maintenance||0),
+    equipment:Number(o.decision.equipment||0),dividend:Number(o.decision.dividend||0)
+  };
+}
+function v04EngineBacktest(){
+  const data=v03Dataset(), op=data.operation||[], fin=data.finance||{}, models=v03BehaviorModels(), rows=[];
+  for(let r=2;r<op.length;r++){
+    const st=v04HistoricalStartState(r), dec=v04ActualDecision(r), af=fin[String(r)], ao=op[r];
+    if(!st||!dec||!af||!ao) continue;
+    const pred=v03PredictBehavior(st,dec,r,models);
+    const shock={
+      demandDelta:Number(ao.sales?.potential_demand||0)-pred.demand,
+      conversionDelta:Number(ao.inventory?.efficiency||pred.conversion)-pred.conversion
+    };
+    const tr=v03Transition(st,dec,r,models,shock);
+    rows.push({
+      round:r,
+      cashError:tr.metrics.cashEnd-Number(af.balance?.cash||0),
+      equityError:tr.metrics.equity-Number(af.balance?.equity||0),
+      pbtError:tr.metrics.pbt-Number(af.income?.net_profit_before_tax||0)
+    });
+  }
+  return rows;
+}
+function v04RenderBacktest(){
+  const data=v03Dataset(), ctx=v04OwnRankContext(), op=data.operation||[], fin=data.finance||{};
+  text('#btOurNPV',ctx.ours?E.money(ctx.ours.npv):'—');
+  text('#btWinnerNPV',ctx.winner?E.money(ctx.winner.npv):'—');
+  text('#btWinnerName',ctx.winner?ctx.winner.company_name:'—');
+  text('#btGap',ctx.ours&&ctx.winner?E.money(Number(ctx.winner.npv)-Number(ctx.ours.npv)):'—');
+  if(ctx.ours&&ctx.winner){
+    const periods=Math.max(1,Number(data.environment?.period||op.length-1));
+    const oursSupport=(Number(ctx.ours.avg_marketing_expense||0)+Number(ctx.ours.avg_rd_expense||0)+Number(ctx.ours.avg_maintenance_expense||0))*periods;
+    const winSupport=(Number(ctx.winner.avg_marketing_expense||0)+Number(ctx.winner.avg_rd_expense||0)+Number(ctx.winner.avg_maintenance_expense||0))*periods;
+    text('#btSupportGap',E.money(oursSupport-winSupport));
+  } else text('#btSupportGap','—');
+
+  const hist=[];
+  for(let r=1;r<op.length;r++){
+    const o=op[r], f=fin[String(r)]; if(!o||!f) continue;
+    const support=Number(o.decision?.marketing||0)+Number(o.decision?.rd||0)+Number(o.decision?.maintenance||0);
+    const holding=Number(f.income?.goods_holding_cost||0)+Number(f.income?.mat_holding_cost||0);
+    hist.push('<tr><td>R'+r+'</td><td>'+E.num(o.sales?.potential_demand)+'</td><td>'+E.num(o.sales?.volume)+'</td><td>'+E.num(Math.max(0,Number(o.sales?.potential_demand||0)-Number(o.sales?.volume||0)))+'</td><td>'+E.num(o.production?.finished_goods_inventory)+'</td><td>'+E.money(support)+'</td><td>'+E.money(holding)+'</td><td>'+E.money(f.income?.net_profit_after_tax)+'</td></tr>');
+  }
+  html('#btAuditBody',hist.length?hist.join(''):'<tr><td colspan="8">Import historical HAR data.</td></tr>');
+
+  const bt=v04EngineBacktest();
+  html('#btEngineBody',bt.length?bt.map(x=>'<tr><td>R'+x.round+'</td><td>'+E.money(x.cashError)+'</td><td>'+E.money(x.equityError)+'</td><td>'+E.money(x.pbtError)+'</td></tr>').join(''):'<tr><td colspan="4">Not enough completed rounds.</td></tr>');
+  const max=k=>bt.length?Math.max(...bt.map(x=>Math.abs(x[k]))):0;
+  text('#btCashErr',bt.length?E.money(max('cashError')):'—');
+  text('#btEquityErr',bt.length?E.money(max('equityError')):'—');
+  text('#btPBTErr',bt.length?E.money(max('pbtError')):'—');
+}
+function v04Randn(){
+  let u=0,v=0; while(u===0)u=Math.random(); while(v===0)v=Math.random();
+  return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
+}
+function v04Percentile(arr,p){
+  if(!arr.length)return NaN; const x=[...arr].sort((a,b)=>a-b), i=(x.length-1)*p, lo=Math.floor(i), hi=Math.ceil(i);
+  return lo===hi?x[lo]:x[lo]+(x[hi]-x[lo])*(i-lo);
+}
+function v04StressBestPath(n=300){
+  const res=v03LastRollingResult; if(!res?.best?.path?.length) return null;
+  const models=res.models||v03BehaviorModels(), demandSigma=Math.max(1,Number(models.demand?.residualSd||models.demand?.mae*1.25||35000));
+  const convSigma=Math.max(0.001,Number(models.conversion?.residualSd||models.conversion?.mae*1.25||0.008));
+  const qualitySigma=Math.max(0,Number(models.quality?.residualSd||0));
+  const imageSigma=Math.max(0,Number(models.image?.residualSd||0));
+  const npvs=[]; let od=0, positive=0;
+  for(let k=0;k<n;k++){
+    let st=v03BaseState(), anyOD=false;
+    for(const step of res.best.path){
+      const shock={
+        demandDelta:v04Randn()*demandSigma,
+        conversionDelta:v04Randn()*convSigma,
+        qualityDelta:v04Randn()*qualitySigma*0.35,
+        imageDelta:v04Randn()*imageSigma*0.35
+      };
+      const tr=v03Transition(st,step.decision,step.round,models,shock);
+      st=tr.state; if(Number(st.abnormalDebt||0)>0) anyOD=true;
+    }
+    const term=v03TerminalValue(st), v=term.npv.value;
+    npvs.push(v); if(anyOD)od++; if(v>0)positive++;
+  }
+  return {n,npvs,p10:v04Percentile(npvs,.10),p50:v04Percentile(npvs,.50),p90:v04Percentile(npvs,.90),odProb:od/n,positiveProb:positive/n,demandSigma,convSigma};
+}
+function v04RenderStress(x){
+  if(!x){html('#stressStatus','<b>No rolling path available.</b> Run Rolling Optimizer first.');return;}
+  html('#stressStatus','Ran <b>'+x.n+'</b> simulations around the fixed best path. Demand and conversion shocks use historical residual dispersion; this is a model-risk band, not a statistical guarantee.');
+  text('#stressP10',E.money(x.p10));text('#stressP50',E.money(x.p50));text('#stressP90',E.money(x.p90));
+  text('#stressODProb',(x.odProb*100).toFixed(1)+'%');text('#stressPositive',(x.positiveProb*100).toFixed(1)+'%');
+  text('#stressDemandSigma',E.num(x.demandSigma));text('#stressConvSigma',Number(x.convSigma).toFixed(4));
+}
+function v04ExplainFirstDecision(res){
+  if(!res?.best?.path?.length){html('#decisionExplanation','Run Rolling Optimizer to generate an explanation.');return;}
+  const first=res.best.path[0], cur={...model.decision}, st=v03BaseState(), models=res.models||v03BehaviorModels();
+  const curTr=v03Transition(st,cur,Number(model.currentRound),models), pickTr=v03Transition(st,first.decision,Number(model.currentRound),models);
+  const bullets=[];
+  const add=(cond,msg)=>{if(cond)bullets.push(msg);};
+  add(Math.abs(Number(first.decision.price)-Number(cur.price))>=0.05,'Price moves from <b>'+E.money(cur.price)+'</b> to <b>'+E.money(first.decision.price)+'</b> based on calibrated competitive demand/margin trade-off.');
+  add(Number(first.decision.production)>Number(cur.production)+10000,'Production is raised by <b>'+E.num(Number(first.decision.production)-Number(cur.production))+'</b> units to reduce modeled lost sales.');
+  add(Number(first.decision.production)<Number(cur.production)-10000,'Production is cut by <b>'+E.num(Number(cur.production)-Number(first.decision.production))+'</b> units to reduce inventory/holding-cost risk.');
+  add(Number(first.decision.marketing)+Number(first.decision.rd)+Number(first.decision.maintenance)<Number(cur.marketing)+Number(cur.rd)+Number(cur.maintenance)-25000,'Support spending is reduced by <b>'+E.money((Number(cur.marketing)+Number(cur.rd)+Number(cur.maintenance))-(Number(first.decision.marketing)+Number(first.decision.rd)+Number(first.decision.maintenance)))+'</b> because the marginal forecast benefit is weaker than its cost.');
+  add(Number(first.decision.procurement)!==Number(cur.procurement),'Procurement changes from <b>'+E.num(cur.procurement)+'</b> to <b>'+E.num(first.decision.procurement)+'</b>, reflecting next-round material need and ordering-cost thresholds.');
+  add(Number(first.decision.equipment)<Number(cur.equipment),'Equipment investment is lower, preserving cash because the projected capacity benefit does not justify the full current plan.');
+  add(Number(first.decision.dividend)>Number(cur.dividend),'Dividend increases because modeled cash exceeds the reserve needed for future positive-NPV actions.');
+  add(Number(pickTr.metrics.abnormalDebt||0)<Number(curTr.metrics.abnormalDebt||0),'The selected package lowers modeled overdraft exposure.');
+  bullets.push('One-round modeled net profit changes by <b>'+E.money(pickTr.metrics.netProfit-curTr.metrics.netProfit)+'</b> and ending cash by <b>'+E.money(pickTr.metrics.cashEnd-curTr.metrics.cashEnd)+'</b>; the rolling search still ranks paths on terminal NPV, not this one-round profit alone.');
+  html('#decisionExplanation','<ul style="margin:0;padding-left:18px">'+bullets.map(x=>'<li style="margin:7px 0">'+x+'</li>').join('')+'</ul>');
 }
 
 function v03FinalCandidateSearch(){
@@ -1494,13 +1645,15 @@ $('#addActualDividend').onclick=()=>{
 restore(); hydrateForms();
 v02Render();
 try{v03RenderRollingDiagnostics();}catch(e){console.warn(e);}
+try{v04RenderBacktest();}catch(e){console.warn(e);}
 const _baseRender=render;
-render=function(){ _baseRender(); try{v02Render();}catch(e){console.warn('v0.2 render',e);} try{v03RenderRollingDiagnostics();}catch(e){console.warn('v0.3 diagnostics',e);} };
+render=function(){ _baseRender(); try{v02Render();}catch(e){console.warn('v0.2 render',e);} try{v03RenderRollingDiagnostics();}catch(e){console.warn('v0.3 diagnostics',e);} try{v04RenderBacktest();}catch(e){console.warn('v0.4 backtest',e);} };
 $('#recalibrateDemand').onclick=()=>v02Render();
 $('#refreshScenarios').onclick=()=>v02Render();
 $('#runFinalSearch').onclick=()=>v03FinalCandidateSearch();
 $('#runRolling').onclick=()=>{html('#rollStatus','Running rolling search…');setTimeout(()=>{try{v03LastRollingResult=v03RunRollingOptimizer();v03RenderRollingResult(v03LastRollingResult);}catch(e){html('#rollStatus','<b>Search error:</b> '+e.message);console.error(e);}},20);};
 $('#applyRollingFirst').onclick=()=>v03ApplyRollingFirst();
+$('#runStress').onclick=()=>{html('#stressStatus','Running uncertainty simulations…');setTimeout(()=>{try{v04RenderStress(v04StressBestPath(300));}catch(e){html('#stressStatus','<b>Stress-test error:</b> '+e.message);console.error(e);}},20);};
 $('#applyPredictedDemand').onclick=()=>{model.decision.expectedDemand=Math.round(v02PredictDemand(model.decision));save();hydrateForms();v02Render();};
 $('[data-apply-scenario]').forEach(b=>b.onclick=()=>v02ApplyScenario(b.dataset.applyScenario));
 </script>
