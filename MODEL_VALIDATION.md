@@ -108,3 +108,29 @@ The app can temporarily neutralize the short-memory live correction factors, run
 - whether the first recommended decision package changed
 
 This helps distinguish a material post-round learning update from a cosmetic one.
+
+
+## Sensitivity / robustness interpretation
+
+v0.9 evaluates first-decision robustness in two ways:
+
+### Local heatmaps
+- Price x Production
+- Marketing x R&D
+
+Each heatmap cell fixes the current-round decision variant and then re-optimizes the remaining rounds with a compact beam search. Therefore the cell value is a projected terminal NPV with an adapted continuation path, not simply current-round profit.
+
+The app reports how many cells remain within 1% and 3% of the local maximum. A broad set of near-optimal cells suggests the recommendation is less sensitive to small parameter errors; a single isolated peak suggests higher model-overfit risk.
+
+### Scenario ensemble
+Candidate first decisions are generated under:
+- Hold latest rivals
+- Price war
+- Stronger rival quality/image
+- Adverse mix
+
+Each candidate is then evaluated across all four scenarios. The current robust score is:
+
+Robust score = mean projected NPV - 0.35 x standard deviation of projected NPV.
+
+This is a decision-robustness heuristic, not a probability-weighted expected value. Scenario probabilities are intentionally not implied unless the team explicitly supplies them.
