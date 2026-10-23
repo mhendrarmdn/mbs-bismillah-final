@@ -134,3 +134,32 @@ Each candidate is then evaluated across all four scenarios. The current robust s
 Robust score = mean projected NPV - 0.35 x standard deviation of projected NPV.
 
 This is a decision-robustness heuristic, not a probability-weighted expected value. Scenario probabilities are intentionally not implied unless the team explicitly supplies them.
+
+
+## Weighted rival-scenario beliefs
+
+v0.10 lets the team assign non-negative weights to the four rival scenarios:
+- Hold latest
+- Price war
+- Stronger quality/image
+- Adverse mix
+
+Weights are normalized to 100%. They are user beliefs, not probabilities inferred by the simulator.
+
+For each candidate first decision:
+- weighted mean projected NPV is calculated across the four rival scenarios
+- weighted NPV standard deviation is calculated
+- worst and best scenario NPVs are still displayed
+- robust score = weighted mean NPV - 0.35 x weighted NPV standard deviation
+
+If all weights are set to zero, the engine falls back to equal 25% weights.
+
+## Competition Dashboard confidence label
+
+The dashboard's HIGH / MEDIUM / LOW label is a heuristic summary based on:
+- local Price x Production heatmap breadth
+- stress-test overdraft probability
+- stress-test P10 NPV
+- worst rival-scenario NPV
+
+It is a decision-support indicator, not a statistical confidence level or guarantee of competition performance.
