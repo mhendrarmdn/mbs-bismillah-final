@@ -194,7 +194,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
           <div class="title-row"><h3>Forecast Assumptions</h3><span class="badge info">TRANSPARENT</span></div>
           <div class="risk"><span class="dot green"></span><div><b>Structural mechanics</b><p>Capacity, equipment BV, replacement cost, equipment fee, economic equity, NPV and observed dividend cap use verified formulas.</p></div></div>
           <div class="risk"><span class="dot orange"></span><div><b>Demand</b><p>Estimated from price, log marketing, log R&D and a macro index using the current HAR history.</p></div></div>
-          <div class="risk"><span class="dot orange"></span><div><b>Operating costs</b><p>Labor, material, tax, holding-cost and admin/misc assumptions are calibrated from historical financial statements.</p></div></div>
+          <div class="risk"><span class="dot orange"></span><div><b>Operating costs</b><p>Labor, material and holding-cost assumptions are calibrated from historical financial statements; progressive tax and single-shift management/misc formulas are verified from the simulator glossary.</p></div></div>
           <div class="risk"><span class="dot orange"></span><div><b>Forecast scope</b><p>The NPV below is “NPV if this round were terminal,” not yet a solved multi-round optimum.</p></div></div>
           <hr>
           <div class="kpi-strip">
@@ -256,7 +256,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
           <div class="formula">Next Capacity = floor(Capacity × 0.975) + floor(Investment / (20 × Current Price Index))</div><br>
           <div class="formula">Replacement Cost = Next Capacity × 20 × Next Price Index</div><br>
           <div class="formula">Economic Equity = Owner's Equity − Equipment BV + Replacement Cost</div><br>
-          <div class="formula">Actual Dividend = min(Proposed, max(0, Beginning Equity − Equity Floor))</div><br><div class="formula">Progressive tax (Low / Moderate / High): 0–200k, 200–500k, 500k–1m, >1m marginal brackets</div>
+          <div class="formula">Actual Dividend = min(Proposed, max(0, Beginning Equity − Equity Floor))</div><br><div class="formula">Progressive tax (Low / Moderate / High): 0–200k, 200–500k, 500k–1m, >1m marginal brackets</div><br><div class="formula">Management Expense = (150,000 + 0.32 × Capacity [+ 50,000 if overtime]) × Price Index</div><br><div class="formula">Misc Expense = (10,000 + 0.18 × Capacity) × Price Index</div>
         </div>
         <div class="card"><h3><span class="badge warn">CALIBRATION REQUIRED</span></h3>
           <div class="risk"><span class="dot orange"></span><div><b>Demand function</b><p>Price × Marketing × R&D × competitor interaction still needs empirical calibration across environments.</p></div></div>
@@ -615,12 +615,12 @@ function v02DemandFit(lambda=0.8){
     const o=op[r], dec=o?.decision, y=Number(o?.sales?.potential_demand);
     if(!dec || !Number.isFinite(y) || y<=0) continue;
     rows.push({
-      x:[Number(dec.price),Math.log1p(Number(dec.marketing||0)),Math.log1p(Number(dec.rd||0)),v02Macro(eco[r])],
+      x:[Number(dec.price),Math.log1p(Number(dec.marketing||0)),Math.log1p(Number(dec.rd||0)),v02Macro(eco[r]),Math.max(0,Number(op[r-1]?.sales?.potential_demand||0)-Number(op[r-1]?.sales?.volume||0))*0.5],
       y, round:r
     });
   }
   if(rows.length<4) return null;
-  const p=4, means=[], sds=[];
+  const p=5, means=[], sds=[];
   for(let j=0;j<p;j++){
     const vals=rows.map(r=>r.x[j]);
     const mean=vals.reduce((a,b)=>a+b,0)/vals.length;
@@ -644,9 +644,11 @@ function v02DemandFit(lambda=0.8){
 function v02PredictDemand(decision,round=model.currentRound){
   const fit=v02DemandFit();
   if(!fit) return Number(decision.expectedDemand||0);
-  const eco=v02Dataset().economy||[];
+  const ds=v02Dataset(), eco=ds.economy||[], op=ds.operation||[];
   const er=eco[Math.min(Math.max(0,round),Math.max(0,eco.length-1))];
-  const raw=[Number(decision.price||0),Math.log1p(Number(decision.marketing||0)),Math.log1p(Number(decision.rd||0)),v02Macro(er)];
+  const prev=op[Math.max(0,Math.min(round-1,op.length-1))];
+  const deferred=Math.max(0,Number(prev?.sales?.potential_demand||0)-Number(prev?.sales?.volume||0))*0.5;
+  const raw=[Number(decision.price||0),Math.log1p(Number(decision.marketing||0)),Math.log1p(Number(decision.rd||0)),v02Macro(er),deferred];
   const z=[1,...raw.map((v,j)=>(v-fit.means[j])/fit.sds[j])];
   return Math.max(0,z.reduce((a,v,j)=>a+v*fit.beta[j],0));
 }
@@ -717,7 +719,14 @@ function v02Forecast(decision){
   const equipmentFee=E.equipmentFee(decision.equipment);
   const revenue=sales*Number(decision.price||0);
   const activity=c.baseSales>0?sales/c.baseSales:1;
-  const adminMisc=c.adminMisc*(0.90+0.10*Math.max(0,activity));
+  const singleShift=String(model.environment.produce_type||'').toLowerCase().includes('single shift');
+  const managementExpense=singleShift
+    ? (150000 + 0.32*Number(s.capacity||0) + (production>Number(s.capacity||0)?50000:0))*Number(model.currentPriceIndex||1)
+    : c.adminMisc*(0.90+0.10*Math.max(0,activity));
+  const miscExpense=singleShift
+    ? (10000 + 0.18*Number(s.capacity||0))*Number(model.currentPriceIndex||1)
+    : 0;
+  const adminMisc=managementExpense+miscExpense;
   const fgHold=endingFGI*c.fgHold;
   const rmHold=endingRM*c.rmHold;
   const normalInterest=Number(s.normalDebt||0)*(Number(model.environment.annual_interest_rate||0)/100/4);
@@ -725,10 +734,10 @@ function v02Forecast(decision){
   const abnormalInterest=Number(s.abnormalDebt||0)*abnormalAnnual/4;
   const expenses={
     labor,material,maintenance:Number(decision.maintenance||0),depreciation,ordering,equipmentFee,
-    marketing:Number(decision.marketing||0),rd:Number(decision.rd||0),adminMisc,fgHold,rmHold,
+    marketing:Number(decision.marketing||0),rd:Number(decision.rd||0),adminMisc,managementExpense,miscExpense,fgHold,rmHold,
     interest:normalInterest+abnormalInterest
   };
-  const totalExpenses=Object.values(expenses).reduce((a,b)=>a+b,0);
+  const totalExpenses=expenses.labor+expenses.material+expenses.maintenance+expenses.depreciation+expenses.ordering+expenses.equipmentFee+expenses.marketing+expenses.rd+expenses.adminMisc+expenses.fgHold+expenses.rmHold+expenses.interest;
   const pbt=revenue-totalExpenses;
   const tax=E.progressiveTax(pbt,c.taxLevel,decision.equipment,String(model.environment.tax_deduction_investment||'No')==='Yes');
   const netProfit=pbt-tax;
@@ -769,7 +778,7 @@ function v02Render(){
   text('#calR2',fit?fit.r2.toFixed(3):'—');
   text('#calMAE',fit?E.num(fit.mae):'—');
   text('#calDemand',fit?E.num(v02PredictDemand(model.decision)):'—');
-  const names=['Price','log(Marketing+1)','log(R&D+1)','Macro index'];
+  const names=['Price','log(Marketing+1)','log(R&D+1)','Macro index','50% prior unmet demand'];
   html('#calCoefBody',fit?names.map((n,i)=>{
     const b=fit.beta[i+1], sign=b>0?'Positive':'Negative';
     return '<tr><td>'+n+'</td><td>'+E.num(b)+'</td><td><span class="badge '+(b>0?'ok':'warn')+'">'+sign+'</span></td></tr>';
@@ -780,7 +789,7 @@ function v02Render(){
     ['Revenue',f.revenue],['Labor',-f.expenses.labor],['Raw material used',-f.expenses.material],
     ['Maintenance',-f.expenses.maintenance],['Depreciation',-f.expenses.depreciation],
     ['Ordering cost',-f.expenses.ordering],['Equipment fee',-f.expenses.equipmentFee],
-    ['Marketing',-f.expenses.marketing],['R&D',-f.expenses.rd],['Admin / misc calibrated',-f.expenses.adminMisc],
+    ['Marketing',-f.expenses.marketing],['R&D',-f.expenses.rd],['Admin / misc verified',-f.expenses.adminMisc],
     ['FG holding',-f.expenses.fgHold],['RM holding',-f.expenses.rmHold],['Interest',-f.expenses.interest],
     ['Profit before tax',f.pbt],['Tax',-f.tax],['Net profit',f.netProfit]
   ];
