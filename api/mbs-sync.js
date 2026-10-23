@@ -68,6 +68,79 @@ function parseLoginForm(html,loginUrl){
   }
   return {action:new URL(action,loginUrl).toString(),method,fields,companyField,passwordField,roleField,roleOptions,submitField,hidden};
 }
+
+function parseJsLogin(html,loginUrl){
+  const src=String(html||'');
+  const leaf=v=>{
+    if(!v) return null;
+    const clean=String(v).replace(/^this\./,'').replace(/\[[^\]]+\]/g,'');
+    const parts=clean.split('.').filter(Boolean);
+    return parts[parts.length-1]||null;
+  };
+  const fieldOf=tag=>leaf(attr(tag,'name')||attr(tag,'v-model')||attr(tag,'model-value'));
+  const inputs=[...src.matchAll(/<input\b[^>]*>/gi)].map(m=>m[0]);
+  const passwordTag=inputs.find(t=>(attr(t,'type')||'').toLowerCase()==='password');
+  const textTags=inputs.filter(t=>['text','number','email'].includes((attr(t,'type')||'text').toLowerCase()));
+  const companyTag=textTags.find(t=>/company/i.test(String(attr(t,'placeholder')||'')+' '+String(fieldOf(t)||'')))||textTags[0]||null;
+  const select=[...src.matchAll(/<select\b[^>]*>([\s\S]*?)<\/select>/gi)][0]||null;
+  let companyField=companyTag?fieldOf(companyTag):null;
+  let passwordField=passwordTag?fieldOf(passwordTag):null;
+  let roleField=select?fieldOf(select[0]):null;
+  if(!companyField){
+    if(/Company ID/i.test(src)) companyField='company_id';
+    else if(/Company name/i.test(src)) companyField='company_name';
+  }
+  if(!passwordField && /Password/i.test(src)) passwordField='password';
+  if(!roleField && /Login role/i.test(src)) roleField='role';
+
+  const roleOptions=select?[...select[1].matchAll(/<option\b([^>]*)>([\s\S]*?)<\/option>/gi)].map(m=>({
+    value:htmlDecode(attr(m[1],'value')||''),
+    text:htmlDecode(m[2].replace(/<[^>]+>/g,'').trim())
+  })):[];
+  const patterns=[
+    {kind:'axios.post',re:/axios\.post\s*\(\s*["']([^"']+)["']/i},
+    {kind:'ajax',re:/\$\.ajax\s*\(\s*\{[\s\S]{0,1200}?url\s*:\s*["']([^"']+)["']/i},
+    {kind:'fetch',re:/fetch\s*\(\s*["']([^"']+)["']/i}
+  ];
+  let action=null,detectedBy=null;
+  for(const p of patterns){
+    const m=src.match(p.re);
+    if(m){
+      try{
+        const u=new URL(m[1],loginUrl);
+        if(u.origin===new URL(BASE).origin){action=u.toString();detectedBy=p.kind;break;}
+      }catch(_){}
+    }
+  }
+  if(!action) return null;
+  const csrf=src.match(/<meta\b[^>]*name=["']csrf-token["'][^>]*content=["']([^"']+)["']/i)?.[1]
+    ||src.match(/<meta\b[^>]*content=["']([^"']+)["'][^>]*name=["']csrf-token["']/i)?.[1]
+    ||null;
+  return {mode:'js',action,method:'POST',fields:{},companyField,passwordField,roleField,roleOptions,submitField:null,csrf,detectedBy};
+}
+function loginDiagnostics(html,loginUrl){
+  const src=String(html||'');
+  const slim=tag=>({
+    type:attr(tag,'type')||null,
+    name:attr(tag,'name')||null,
+    model:attr(tag,'v-model')||null,
+    placeholder:attr(tag,'placeholder')||null
+  });
+  const inputs=[...src.matchAll(/<input\b[^>]*>/gi)].map(m=>slim(m[0])).slice(0,10);
+  const selects=[...src.matchAll(/<select\b[^>]*>/gi)].map(m=>slim(m[0])).slice(0,6);
+  const endpoints=[];
+  for(const re of [/axios\.post\s*\(\s*["']([^"']+)["']/gi,/\$\.ajax\s*\(\s*\{[\s\S]{0,1200}?url\s*:\s*["']([^"']+)["']/gi,/fetch\s*\(\s*["']([^"']+)["']/gi]){
+    for(const m of src.matchAll(re)){
+      try{endpoints.push(new URL(m[1],loginUrl).toString());}catch(_){}
+    }
+  }
+  return {
+    htmlLength:src.length,
+    title:(src.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]||'').replace(/<[^>]+>/g,'').trim(),
+    inputs,selects,endpoints:[...new Set(endpoints)].slice(0,8)
+  };
+}
+
 function resolveRole(form,wanted){
   const target=String(wanted||'').trim().toLowerCase();
   if(target){
