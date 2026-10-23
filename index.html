@@ -2563,6 +2563,6 @@ $('#printRoundBrief').onclick=()=>v11Print('brief');
 $$('[data-weight-preset]').forEach(b=>b.onclick=()=>v11WeightPreset(b.dataset.weightPreset));
 $('#downloadDecision').onclick=()=>v06DownloadDecision();
 $('#applyPredictedDemand').onclick=()=>{model.decision.expectedDemand=Math.round(v02PredictDemand(model.decision));save();hydrateForms();v02Render();};
-$('[data-apply-scenario]').forEach(b=>b.onclick=()=>v02ApplyScenario(b.dataset.applyScenario));
+$$('[data-apply-scenario]').forEach(b=>b.onclick=()=>v02ApplyScenario(b.dataset.applyScenario));
 </script>
 </body></html>
