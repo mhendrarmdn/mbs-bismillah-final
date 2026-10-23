@@ -184,3 +184,42 @@ They are convenience defaults, not inferred probabilities.
 ## Printable sheets
 
 The printable submission sheet contains the eight recommended decisions, selected robustness metrics, scenario weights, and active submission warnings. The post-round brief shows the latest forecast-vs-actual reconciliation and updated calibration factors. These are team workflow artifacts, not official TopBoss reports.
+
+
+## v0.13 live-safe cutoff validation
+
+A critical hardening issue was found and fixed: the competitor-aware model accepted a `maxRound` cutoff but its loop still used all historical rounds. In Competition Mode this could leak future same-game observations into the model.
+
+After the fix:
+- R1 uses 0 same-game response rows.
+- R2 may use only R1.
+- R3 may use only R1-R2.
+- R4 may use only R1-R3.
+- The six-feature competitor-aware demand regression requires 4 usable rows and therefore is not activated within a four-round preliminary horizon.
+- R1-R4 demand instead uses a Simulation-1 absolute-demand prior, current-game short-memory calibration, and a sign-constrained competitor adjustment.
+
+### Early-round competitor adjustment
+
+The unconstrained 8-round competitor regression had unstable causal directions due to the tiny sample. It is retained as a diagnostic only.
+
+For live early rounds:
+- a higher own price relative to rivals can only reduce the competitor adjustment;
+- a stronger own quality gap can only improve the competitor adjustment;
+- a stronger own image gap can only improve the competitor adjustment;
+- the multiplicative adjustment is bounded to avoid extreme extrapolation.
+
+Synthetic scenario tests confirm the intended direction:
+- Price War < Hold demand
+- Stronger Rivals < Hold demand
+- Adverse Mix < Hold demand
+
+### Early-round uncertainty
+
+A walk-forward R1-R4 replay using only information available before each round and the historical submitted decisions produced demand MAE on the order of ~83k units in this single historical game. This is not a universal error estimate, but it demonstrates substantial early-round model uncertainty.
+
+Accordingly, when no current-game demand model is active:
+- stress testing uses a larger demand sigma based on the Simulation-1 prior residual with an additional conservatism multiplier;
+- R1 confidence is capped low;
+- R2 confidence is capped medium;
+- missing post-round reconciliation also caps confidence;
+- the Competition Dashboard explicitly warns that demand is prior-assisted.
