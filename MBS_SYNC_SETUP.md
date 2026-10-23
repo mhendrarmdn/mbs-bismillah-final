@@ -109,3 +109,33 @@ HAR import remains the fallback if TopBoss blocks server-side login or changes t
 The historical HAR was recorded after login, so the exact competition login submit request was not captured. The server therefore discovers the login form dynamically, including hidden CSRF fields, company field, role field, password field, and form action.
 
 If TopBoss uses JavaScript-only authentication, CAPTCHA, a bot challenge, or an arena-specific login flow that cannot be reproduced by normal HTTP form submission, Direct Sync will fail safely and HAR import should be used. A fresh HAR that starts **before pressing Login** would let us calibrate the login flow exactly.
+
+
+## Troubleshooting Direct Sync
+
+### LOGIN_REQUEST_NOT_DETECTED
+
+TopBoss login pages can be Vue/JavaScript-driven rather than a traditional HTML `<form>`.
+
+Current sync logic now:
+- scans regular forms first;
+- then scans global `input` / `select` elements and `v-model` fields;
+- detects same-origin login requests from `axios.post`, `$.ajax`, or `fetch`;
+- reads CSRF metadata when present;
+- tries JSON first for JavaScript-driven login and form encoding as a fallback;
+- normalizes visible role names such as `CEO` to the internal lowercase value when no static role option is present.
+
+If detection still fails, the Direct Sync panel displays sanitized diagnostics containing detected field names and candidate endpoints. These diagnostics never include the configured password.
+
+### LOGIN_FAILED
+
+This means a login request was detected and sent, but TopBoss did not create an authenticated session.
+
+Check:
+1. the Production Vercel environment contains the correct arena/login URL;
+2. the Company ID/name matches what that arena expects;
+3. `MBS_ROLE_VALUE` matches the visible role (for example `CEO`);
+4. the password is current;
+5. the project was redeployed after changing Vercel environment variables.
+
+If it still fails, capture a HAR beginning **before pressing Login** and ending after the dashboard loads. That HAR can reveal the exact login endpoint/payload without putting the password into source control.
