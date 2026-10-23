@@ -738,6 +738,10 @@ self.onmessage = async (ev) => {
     const v = Number(n || 0);
     return new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(v);
   };
+  E.price = n => {
+    const v = Number(n || 0);
+    return new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',minimumFractionDigits:2,maximumFractionDigits:2}).format(v);
+  };
   E.num = (n,d=0) => new Intl.NumberFormat('en-US',{maximumFractionDigits:d,minimumFractionDigits:d}).format(Number(n||0));
   E.pct = n => `${(Number(n||0)*100).toFixed(2)}%`;
 
@@ -1699,11 +1703,11 @@ function v11WeightPreset(name){
 }
 function v11DecisionRows(d){
   return [
-    ['Price',Number(d.price||0).toFixed(2)],
-    ['Production',Math.round(Number(d.production||0)).toLocaleString()],
+    ['Price',E.price(d.price)+' / finished unit'],
+    ['Production',Math.round(Number(d.production||0)).toLocaleString()+' finished units'],
     ['Marketing',E.money(d.marketing)],
     ['R&D',E.money(d.rd)],
-    ['Procurement',Math.round(Number(d.procurement||0)).toLocaleString()],
+    ['Procurement',Math.round(Number(d.procurement||0)).toLocaleString()+' RM units'],
     ['Maintenance',E.money(d.maintenance)],
     ['Equipment',E.money(d.equipment)],
     ['Dividend',E.money(d.dividend)]
@@ -1819,7 +1823,7 @@ function v09RunPriceProductionHeatmap(){
     }
     vals.push(row);
   }
-  const result=v09RenderMatrix('#ppHeatmapTable',prodMult.map(x=>(x*100).toFixed(0)+'% prod'),priceSteps.map(x=>E.money(Number(base.price||0)+x)),vals,'Production');
+  const result=v09RenderMatrix('#ppHeatmapTable',prodMult.map(x=>(x*100).toFixed(0)+'% prod'),priceSteps.map(x=>E.price(Number(base.price||0)+x)),vals,'Production');
   v09LastPriceProdHeatmap={base:{...base},priceSteps,prodMult,values:vals,...result};
   html('#ppHeatmapStatus','Heatmap centered on <b>'+E.money(base.price)+'</b> and <b>'+E.num(base.production)+'</b> units. <b>'+result.near1+'/'+result.total+'</b> cells are within 1% of the local max; <b>'+result.near3+'/'+result.total+'</b> are within 3%. More near-optimal cells usually means a broader, less fragile optimum.');
   text('#sensLocalMax',E.money(result.max));text('#sensLocalMin',E.money(result.min));text('#sensLocalSpread',E.money(result.spread));
@@ -1941,9 +1945,9 @@ function v10RenderCompetition(){
   text('#compMode',model.appMode==='competition'?'Competition • live-safe':'WARNING: switch to Competition mode');
   text('#compDecisionSource',rec.source);
   $('#compDecisionSource').className='badge '+(rec.source==='Robust ensemble'?'ok':'info');
-  text('#compPrice',E.money(d.price));text('#compProduction',E.num(d.production));
+  text('#compPrice',E.price(d.price)+' / unit');text('#compProduction',E.num(d.production)+' units');
   text('#compMarketing',E.money(d.marketing));text('#compRD',E.money(d.rd));
-  text('#compProcurement',E.num(d.procurement));text('#compMaintenance',E.money(d.maintenance));
+  text('#compProcurement',E.num(d.procurement)+' RM units');text('#compMaintenance',E.money(d.maintenance));
   text('#compEquipment',E.money(d.equipment));text('#compDividend',E.money(d.dividend));
 
   const rollingNPV=v03LastRollingResult?.terminal?.npv?.value;
@@ -2169,9 +2173,9 @@ function v06RenderSubmission(){
   const d=model.decision,c=calculations(),f=v02Forecast(d);
   text('#modeBadge',model.appMode==='competition'?'Competition • live-safe':'Practice • retrospective');
   $('#modeBadge').className='badge '+(model.appMode==='competition'?'ok':'info');
-  text('#subPrice',E.money(d.price));text('#subProduction',E.num(d.production));
+  text('#subPrice',E.price(d.price)+' / unit');text('#subProduction',E.num(d.production)+' units');
   text('#subMarketing',E.money(d.marketing));text('#subRD',E.money(d.rd));
-  text('#subProcurement',E.num(d.procurement));text('#subMaintenance',E.money(d.maintenance));
+  text('#subProcurement',E.num(d.procurement)+' RM units');text('#subMaintenance',E.money(d.maintenance));
   text('#subEquipment',E.money(d.equipment));text('#subDividend',E.money(d.dividend));
   const w=[];
   const cap=Number(model.state.capacity||0), maxProd=1.5*cap;
@@ -2511,8 +2515,23 @@ function v14RenderRankings(){
   html('#rankBody',rank.length?rank.map((r,i)=>'<tr><td>#'+(i+1)+'</td><td>'+r.company_name+'</td><td>'+E.money(r.npv)+'</td><td>'+E.money(r.stockholder_equity)+'</td><td>'+E.money(r.total_dividend_issue)+'</td><td>'+E.num(r.avg_sales_volume)+'</td></tr>').join(''):'<tr><td colspan="6" class="muted">Final round is complete, but no ranking rows were captured. Import a HAR that includes the Rankings page.</td></tr>');
 }
 
+function v15RenderDecisionUnits(){
+  const d=model.decision||{};
+  text('#uPrice',E.price(d.price)+' per finished unit');
+  text('#uProduction',E.num(d.production)+' finished units');
+  text('#uDemand',E.num(d.expectedDemand)+' finished units');
+  text('#uMarketing',E.money(d.marketing)+' marketing spend');
+  text('#uRD',E.money(d.rd)+' R&D spend');
+  text('#uProcurement',E.num(d.procurement)+' raw-material units');
+  text('#uMaintenance',E.money(d.maintenance)+' maintenance spend');
+  text('#uEquipment',E.money(d.equipment)+' equipment investment');
+  text('#uDividend',E.money(d.dividend)+' proposed dividend');
+  text('#uEndingEquity',E.money(d.projectedEndingEquity)+' projected equity');
+}
+
 function render(){
   const c=calculations(),s=model.state,d=model.decision;
+  v15RenderDecisionUnits();
   text('#sourceLabel',model.source);
   text('#mRound',`${model.currentRound} / ${model.totalRounds}`);
   text('#mCash',E.money(s.cash)); text('#mEquity',E.money(s.equity));
@@ -2520,12 +2539,12 @@ function render(){
   text('#mTerminalNPV',E.money(c.npv.value)); text('#mActualDividend',E.money(c.actualDiv));
   text('#mNextCapacity',E.num(c.cap.total)); text('#mReplacement',E.money(c.rc));
 
-  text('#rEquipmentFee',E.money(c.fee)); text('#rAddedCapacity',E.num(c.cap.added));
+  text('#rEquipmentFee',E.money(c.fee)); text('#rAddedCapacity',E.num(c.cap.added)+' units');
   text('#rNextBV',E.money(c.bv)); text('#rRC',E.money(c.rc));
   text('#rEE',E.money(c.ee)); text('#rPVDiv',E.money(c.npv.pvDividends));
   text('#rPVTerminal',E.money(c.npv.pvTerminal)); text('#rNPV',E.money(c.npv.value));
-  text('#rRMNeed',E.num(c.rmNeed)); text('#rOrdering',E.money(c.procurement.estimated));
-  text('#rOrderBand',c.procurement.band); text('#rTerminalEquip',E.money(c.terminalEquip.structuralDelta));
+  text('#rRMNeed',E.num(c.rmNeed)+' RM units'); text('#rOrdering',E.money(c.procurement.estimated));
+  text('#rOrderBand','Procurement band: '+c.procurement.band+' RM units'); text('#rTerminalEquip',E.money(c.terminalEquip.structuralDelta));
 
   const cover=d.expectedDemand>0?(s.finishedGoods+d.production)/d.expectedDemand:0;
   $('#demandBar').style.width=`${Math.min(100,Math.max(0,cover*100))}%`;
