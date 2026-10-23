@@ -1861,6 +1861,7 @@ function v10Recommended(){
   return {decision:{...model.decision},source:'Current Decision Lab',ensemble:null};
 }
 function v10HasCompetitorSnapshot(){
+  if(model.appMode==='competition' && !model.imported?.competitors?.north) return false;
   const data=v03Dataset(), own=v03InferOwnCompany(data), round=Math.max(0,Number(model.currentRound||1)-1);
   const rows=v03RoundRows(data,round);
   return !!(own && rows && rows.length>=2);
