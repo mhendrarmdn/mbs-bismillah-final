@@ -123,3 +123,10 @@ v0.12: optional lightweight worker-based search for smoother UI during heavy hea
 - Added explicit prior-assisted-demand warnings in the Competition Dashboard.
 
 See `HARDENING_REPORT.md` for runtime tests and known limitations.
+
+
+## Live data-source rule
+
+- **Sales Status (`/bus/sales`) is the live competitor source.** It provides per-period competitor price, volume, market share, product quality, and product image.
+- **Rankings (`/decide/rank`) are final-only.** They are not required for R1-R4 optimization and do not feed the live optimizer or confidence score.
+- During competition, open **Sales Status** before exporting the HAR each round. After the final round, open **Rankings** only if you want final standings/post-game audit.
