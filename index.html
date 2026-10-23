@@ -47,6 +47,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
       <button data-target="decision"><span class="ico">◎</span> Decision Lab</button>
       <button data-target="calibration"><span class="ico">∿</span> Calibration & Forecast</button>
       <button data-target="scenarios"><span class="ico">◇</span> Scenario Lab</button>
+      <button data-target="rolling"><span class="ico">↻</span> Rolling Optimizer</button>
       <button data-target="audit"><span class="ico">✓</span> Formula Audit</button>
       <button data-target="import"><span class="ico">⇩</span> HAR Import</button>
     </div>
@@ -123,6 +124,12 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
           <div class="field"><label>Conversion factor</label><input id="conversion" type="number" step=".0001"></div>
           <div class="field"><label>Normal debt</label><input id="normalDebt" type="number"></div>
           <div class="field"><label>Abnormal debt</label><input id="abnormalDebt" type="number"></div>
+          <div class="field"><label>RM unit cost</label><input id="rawMaterialUnitCost" type="number" step=".0001"></div>
+          <div class="field"><label>FGI unit cost</label><input id="finishedGoodsUnitCost" type="number" step=".0001"></div>
+          <div class="field"><label>Product quality</label><input id="productQuality" type="number" step=".0001"></div>
+          <div class="field"><label>Product image</label><input id="productImage" type="number" step=".0001"></div>
+          <div class="field"><label>Previous market share (%)</label><input id="marketShare" type="number" step=".0001"></div>
+          <div class="field"><label>Current RM purchase price</label><input id="materialPurchasePrice" type="number" step=".0001"></div>
         </div>
         <div class="spacer"></div><button id="saveSetup" class="btn primary">Save setup & recalculate</button>
       </div>
@@ -254,6 +261,58 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
           <thead><tr><th>#</th><th>Price</th><th>Mkt</th><th>R&D</th><th>Maint.</th><th>Equip.</th><th>Production</th><th>Demand</th><th>Net Profit</th><th>Terminal NPV</th><th></th></tr></thead>
           <tbody id="finalSearchBody"><tr><td colspan="11" class="muted">No search run yet.</td></tr></tbody>
         </table></div>
+      </div>
+    </section>
+
+
+    <section id="rolling" class="section">
+      <div class="callout gold"><b>Rolling optimizer:</b> searches from the active round through the terminal round. Verified accounting/production mechanics are used directly; demand, product quality/image, conversion and future raw-material prices remain calibrated forecasts.</div>
+      <div class="spacer"></div>
+      <div class="grid g4">
+        <div class="card metric"><div class="label">Inferred company</div><div class="value" id="rollCompany" style="font-size:18px">—</div><div class="foot">Matched from HAR sales rows</div></div>
+        <div class="card metric"><div class="label">Demand model R²</div><div class="value" id="rollDemandR2">—</div><div class="foot">Competitor-aware ridge model</div></div>
+        <div class="card metric"><div class="label">Conversion model R²</div><div class="value" id="rollConvR2">—</div><div class="foot">Maintenance + R&D calibrated</div></div>
+        <div class="card metric"><div class="label">Rounds remaining</div><div class="value" id="rollRemaining">—</div><div class="foot">Including current round</div></div>
+      </div>
+      <div class="spacer"></div>
+      <div class="grid g2">
+        <div class="card">
+          <h3>Search controls</h3>
+          <div class="form-grid">
+            <div class="field"><label>Beam width</label><select id="rollBeam"><option value="8">8 — Fast</option><option value="16" selected>16 — Balanced</option><option value="28">28 — Deep</option></select></div>
+            <div class="field"><label>Risk profile</label><select id="rollRisk"><option value="npv">NPV first</option><option value="balanced" selected>Balanced</option><option value="cashsafe">Cash safe</option></select></div>
+            <div class="field"><label>Commercial range</label><select id="rollRange"><option value="tight">Tight</option><option value="normal" selected>Normal</option><option value="wide">Wide</option></select></div>
+          </div>
+          <div class="spacer"></div>
+          <div class="actions"><button id="runRolling" class="btn gold">Run rolling optimizer</button><button id="applyRollingFirst" class="btn primary" disabled>Apply first decision</button></div>
+          <div class="spacer"></div><div id="rollStatus" class="callout">Import the latest HAR (or enter state manually), then run the search.</div>
+        </div>
+        <div class="card">
+          <h3>Calibration diagnostics</h3>
+          <div class="kpi-strip">
+            <div class="pill">Quality R²<b id="rollQualityR2">—</b></div>
+            <div class="pill">Image R²<b id="rollImageR2">—</b></div>
+            <div class="pill">Demand MAE<b id="rollDemandMAE">—</b></div>
+            <div class="pill">Last competitor avg price<b id="rollCompPrice">—</b></div>
+          </div>
+          <hr>
+          <div class="small muted">The optimizer penalizes overdraft, excessive ending FGI, and impossible production. It does not assume competitor decisions are known; future competitor position is held near the latest observed market state unless later HAR data exists.</div>
+        </div>
+      </div>
+      <div class="spacer"></div>
+      <div class="card">
+        <div class="title-row"><h3>Best projected path</h3><span class="badge warn">CALIBRATED MULTI-ROUND</span></div>
+        <div class="scroll"><table>
+          <thead><tr><th>Round</th><th>Price</th><th>Production</th><th>Marketing</th><th>R&D</th><th>Procurement</th><th>Maintenance</th><th>Equipment</th><th>Dividend</th><th>Demand</th><th>Sales</th><th>Net Profit</th><th>Cash End</th><th>Equity End</th></tr></thead>
+          <tbody id="rollingPathBody"><tr><td colspan="14" class="muted">No rolling search run yet.</td></tr></tbody>
+        </table></div>
+        <div class="spacer"></div>
+        <div class="grid g4">
+          <div class="card metric"><div class="label">Projected terminal NPV</div><div class="value" id="rollNPV">—</div></div>
+          <div class="card metric"><div class="label">Terminal economic equity</div><div class="value" id="rollEE">—</div></div>
+          <div class="card metric"><div class="label">PV dividends</div><div class="value" id="rollPVDiv">—</div></div>
+          <div class="card metric"><div class="label">Worst overdraft in path</div><div class="value" id="rollOverdraft">—</div></div>
+        </div>
       </div>
     </section>
 
@@ -507,7 +566,9 @@ let model={
   state:{
     cash:1147000, equity:10800000, rawMaterial:1200000, finishedGoods:51000,
     equipmentBV:8300000, capacity:415000, conversion:0.6749915626,
-    replacementCost:8300000, normalDebt:0, abnormalDebt:0
+    replacementCost:8300000, normalDebt:0, abnormalDebt:0,
+    rawMaterialUnitCost:1, finishedGoodsUnitCost:3, productQuality:0.2645133,
+    productImage:0.6033333, marketShare:0, materialPurchasePrice:1.15
   },
   decision:{
     price:6.4, production:425641, expectedDemand:438879, marketing:150000, rd:150000,
@@ -535,6 +596,7 @@ function nav(id){
     decision:['Decision Lab','Evaluate the eight decisions before submitting'],
     calibration:['Calibration & Forecast','Empirical demand model and transparent P&L forecast'],
     scenarios:['Scenario Lab','Stress-test alternative decision packages'],
+    rolling:['Rolling Optimizer','Beam-search decisions from the active round through the terminal round'],
     audit:['Formula Audit','Verified formulas, assumptions, and remaining calibration gaps'],
     import:['HAR Import','Read TopBoss data directly from a browser HAR capture']
   };
@@ -555,7 +617,10 @@ function hydrateForms(){
   Object.entries({
     '#cash':'cash','#equity':'equity','#rawMaterial':'rawMaterial','#finishedGoods':'finishedGoods',
     '#equipmentBV':'equipmentBV','#capacity':'capacity','#conversion':'conversion',
-    '#replacementCost':'replacementCost','#normalDebt':'normalDebt','#abnormalDebt':'abnormalDebt'
+    '#replacementCost':'replacementCost','#normalDebt':'normalDebt','#abnormalDebt':'abnormalDebt',
+    '#rawMaterialUnitCost':'rawMaterialUnitCost','#finishedGoodsUnitCost':'finishedGoodsUnitCost',
+    '#productQuality':'productQuality','#productImage':'productImage','#marketShare':'marketShare',
+    '#materialPurchasePrice':'materialPurchasePrice'
   }).forEach(([id,k])=>setv(id,model.state[k]));
   Object.entries({
     '#price':'price','#production':'production','#expectedDemand':'expectedDemand','#marketing':'marketing',
@@ -575,7 +640,7 @@ function readForms(){
   model.environment.market_activity={market_1:$('#marketActivity').value};
   model.environment.economy_growth_index=$('#growthIndex').value;
   model.currentPriceIndex=val('#currentPI'); model.nextPriceIndex=val('#nextPI');
-  const smap={cash:'#cash',equity:'#equity',rawMaterial:'#rawMaterial',finishedGoods:'#finishedGoods',equipmentBV:'#equipmentBV',capacity:'#capacity',conversion:'#conversion',replacementCost:'#replacementCost',normalDebt:'#normalDebt',abnormalDebt:'#abnormalDebt'};
+  const smap={cash:'#cash',equity:'#equity',rawMaterial:'#rawMaterial',finishedGoods:'#finishedGoods',equipmentBV:'#equipmentBV',capacity:'#capacity',conversion:'#conversion',replacementCost:'#replacementCost',normalDebt:'#normalDebt',abnormalDebt:'#abnormalDebt',rawMaterialUnitCost:'#rawMaterialUnitCost',finishedGoodsUnitCost:'#finishedGoodsUnitCost',productQuality:'#productQuality',productImage:'#productImage',marketShare:'#marketShare',materialPurchasePrice:'#materialPurchasePrice'};
   Object.entries(smap).forEach(([k,id])=>model.state[k]=val(id));
   const dmap={price:'#price',production:'#production',expectedDemand:'#expectedDemand',marketing:'#marketing',rd:'#rd',procurement:'#procurement',maintenance:'#maintenance',equipment:'#equipment',dividend:'#dividend',projectedEndingEquity:'#projectedEndingEquity'};
   Object.entries(dmap).forEach(([k,id])=>model.decision[k]=val(id));
@@ -943,7 +1008,9 @@ $('#useSample').onclick=()=>{
     cash:f.balance.cash,equity:f.balance.equity,rawMaterial:o.production.raw_material_inventory_end,
     finishedGoods:o.production.finished_goods_inventory,equipmentBV:f.balance.equipment_value,
     capacity:o.production.production_capacity_next,conversion:o.inventory.efficiency,
-    replacementCost:f.balance.recapitalized_cost,normalDebt:f.balance.normal_debt,abnormalDebt:f.balance.abnormal_debt
+    replacementCost:f.balance.recapitalized_cost,normalDebt:f.balance.normal_debt,abnormalDebt:f.balance.abnormal_debt,
+    rawMaterialUnitCost:f.balance.mat_unit_cost||1,finishedGoodsUnitCost:f.balance.finished_goods_unit_cost||3,
+    productQuality:0.2645133,productImage:0.6033333,marketShare:0,materialPurchasePrice:f.cash_flow.mat_price||1.15
   };
   model.actualDividends=[]; model.rank=initialSample.rank||[];
   model.decision={price:6.4,production:425641,expectedDemand:438879,marketing:150000,rd:150000,procurement:500000,maintenance:75000,equipment:0,dividend:0,projectedEndingEquity:f.balance.equity};
@@ -982,8 +1049,20 @@ function importHar(file){
           cash:f.balance.cash,equity:f.balance.equity,rawMaterial:o.production.raw_material_inventory_end,
           finishedGoods:o.production.finished_goods_inventory,equipmentBV:f.balance.equipment_value,
           capacity:o.production.production_capacity_next,conversion:o.inventory.efficiency,
-          replacementCost:f.balance.recapitalized_cost,normalDebt:f.balance.normal_debt,abnormalDebt:f.balance.abnormal_debt
+          replacementCost:f.balance.recapitalized_cost,normalDebt:f.balance.normal_debt,abnormalDebt:f.balance.abnormal_debt,
+          rawMaterialUnitCost:f.balance.mat_unit_cost||1,finishedGoodsUnitCost:f.balance.finished_goods_unit_cost||3,
+          productQuality:model.state.productQuality||0.3,productImage:model.state.productImage||0.6,
+          marketShare:model.state.marketShare||0,materialPurchasePrice:f.cash_flow.mat_price||model.state.materialPurchasePrice||1
         };
+        try{
+          const own=v03InferOwnCompany(x);
+          const row=v03OwnSalesRow(x,latest,own);
+          if(row){
+            model.state.productQuality=Number(row.product_quality||model.state.productQuality);
+            model.state.productImage=Number(row.product_image||model.state.productImage);
+            model.state.marketShare=Number(row.market_share||model.state.marketShare);
+          }
+        }catch(_){ }
         model.decision.projectedEndingEquity=f.balance.equity;
         model.actualDividends=[];
         for(let r=1;r<=latest;r++){
