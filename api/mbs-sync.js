@@ -6,7 +6,7 @@ function htmlDecode(s=''){
     .replace(/&lt;/g,'<').replace(/&gt;/g,'>');
 }
 function attr(tag,name){
-  const re=new RegExp('\\b'+name+'\\s*=\\s*(?:"([^"]*)"|\\'([^\\']*)\\'|([^\\s>]+))','i');
+  const re=new RegExp("\\b"+name+"\\s*=\\s*(?:\"([^\"]*)\"|'([^']*)'|([^\\s>]+))","i");
   const m=String(tag).match(re);
   return m?htmlDecode(m[1]??m[2]??m[3]??''):null;
 }
