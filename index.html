@@ -1815,16 +1815,23 @@ function v10Recommended(){
   if(first) return {decision:{...first.decision},source:'Rolling optimizer',ensemble:null};
   return {decision:{...model.decision},source:'Current Decision Lab',ensemble:null};
 }
+function v10HasCompetitorSnapshot(){
+  const data=v03Dataset(), own=v03InferOwnCompany(data), round=Math.max(0,Number(model.currentRound||1)-1);
+  const rows=v03RoundRows(data,round);
+  return !!(own && rows && rows.length>=2);
+}
 function v10Confidence(){
   const h=v09LastPriceProdHeatmap,st=v10LastStress,e=v09LastEnsemble?.[0];
+  const hasComp=v10HasCompetitorSnapshot();
   let score=0,parts=0;
   if(h?.total){parts++;const r=h.near1/h.total;score+=r>=0.20?1:r>=0.08?0.55:0.15;}
   if(st){parts++;score+=st.odProb<=0.10?1:st.odProb<=0.25?0.55:0.1;}
   if(st){parts++;score+=st.p10>0?1:st.p10>-0.10*Math.max(1,Math.abs(st.p50))?0.45:0;}
   if(e){parts++;score+=e.worst>0?1:e.worst>-0.15*Math.max(1,Math.abs(e.mean))?0.45:0;}
-  if(!parts)return {label:'NOT READY',score:0};
-  const ratio=score/parts;
-  return {label:ratio>=0.78?'HIGH':ratio>=0.50?'MEDIUM':'LOW',score:ratio};
+  if(!parts)return {label:'NOT READY',score:0,hasCompetitors:hasComp};
+  let ratio=score/parts;
+  if(model.appMode==='competition' && !hasComp) ratio=Math.min(ratio,0.35);
+  return {label:ratio>=0.78?'HIGH':ratio>=0.50?'MEDIUM':'LOW',score:ratio,hasCompetitors:hasComp};
 }
 function v10RiskFlags(decision){
   const flags=[],state=v03BaseState(),models=v03BehaviorModels();
@@ -1842,6 +1849,7 @@ function v10RiskFlags(decision){
   if(v10LastStress?.odProb>0.20) flags.push({level:'warn',text:'Stress-test overdraft probability exceeds 20%.'});
   if(v09LastEnsemble?.[0]?.worst<0) flags.push({level:'warn',text:'Robust leader has negative NPV in at least one rival scenario.'});
   if(v09LastPriceProdHeatmap?.total && v09LastPriceProdHeatmap.near1<=2) flags.push({level:'warn',text:'Price/production optimum is narrow: only '+v09LastPriceProdHeatmap.near1+' of '+v09LastPriceProdHeatmap.total+' cells are within 1% of local max.'});
+  if(model.appMode==='competition' && !v10HasCompetitorSnapshot()) flags.push({level:'warn',text:'Competitor snapshot is missing. Rival-scenario results are not decision-grade until a current HAR with sales/competition rows is imported.'});
   if(!flags.length) flags.push({level:'ok',text:'No structural block detected. Forecast uncertainty still applies.'});
   return flags;
 }
