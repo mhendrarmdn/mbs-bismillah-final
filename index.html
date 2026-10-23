@@ -1848,9 +1848,13 @@ function importHar(file){
           if(current?.inflation_index) model.currentPriceIndex=Number(current.inflation_index)/100;
           if(next?.inflation_index) model.nextPriceIndex=Number(next.inflation_index)/100;
         }
+        v07Ensure();
+        const reconciliation=v07Reconcile(x,latest);
+        if(reconciliation) model.lastReconciliation=reconciliation;
       }
       save();hydrateForms();
-      text('#harStatus',`Parsed ${x.entryCount} network entries. Environment, finance, operation and ranking loaded.`);
+      const learned=model.lastReconciliation && Number(model.lastReconciliation.round)===latest;
+      text('#harStatus',`Parsed ${x.entryCount} network entries. Environment, finance, operation and ranking loaded.`+(learned?' R'+latest+' forecast reconciled and corrections updated.':''));
       worker.terminate();
     }
   };
@@ -1870,19 +1874,21 @@ $('#addActualDividend').onclick=()=>{
   save();render();
 };
 
-restore(); hydrateForms();
+restore(); v07Ensure(); hydrateForms();
 v02Render();
 try{v03RenderRollingDiagnostics();}catch(e){console.warn(e);}
 try{v04RenderBacktest();}catch(e){console.warn(e);}
 try{v06RenderSubmission();}catch(e){console.warn(e);}
+try{v07RenderLearning();}catch(e){console.warn(e);}
 const _baseRender=render;
-render=function(){ _baseRender(); try{v02Render();}catch(e){console.warn('v0.2 render',e);} try{v03RenderRollingDiagnostics();}catch(e){console.warn('v0.3 diagnostics',e);} try{v04RenderBacktest();}catch(e){console.warn('v0.4 backtest',e);} try{v06RenderSubmission();}catch(e){console.warn('v0.6 submission',e);} };
+render=function(){ _baseRender(); try{v02Render();}catch(e){console.warn('v0.2 render',e);} try{v03RenderRollingDiagnostics();}catch(e){console.warn('v0.3 diagnostics',e);} try{v04RenderBacktest();}catch(e){console.warn('v0.4 backtest',e);} try{v06RenderSubmission();}catch(e){console.warn('v0.6 submission',e);} try{v07RenderLearning();}catch(e){console.warn('v0.7 learning',e);} };
 $('#recalibrateDemand').onclick=()=>v02Render();
 $('#refreshScenarios').onclick=()=>v02Render();
 $('#runFinalSearch').onclick=()=>v03FinalCandidateSearch();
 $('#runRolling').onclick=()=>{html('#rollStatus','Running rolling search…');setTimeout(()=>{try{v03LastRollingResult=v03RunRollingOptimizer();v03RenderRollingResult(v03LastRollingResult);}catch(e){html('#rollStatus','<b>Search error:</b> '+e.message);console.error(e);}},20);};
 $('#applyRollingFirst').onclick=()=>v03ApplyRollingFirst();
 $('#runStress').onclick=()=>{html('#stressStatus','Running uncertainty simulations…');setTimeout(()=>{try{v04RenderStress(v04StressBestPath(300));}catch(e){html('#stressStatus','<b>Stress-test error:</b> '+e.message);console.error(e);}},20);};
+$('#lockSnapshot').onclick=()=>v07LockSnapshot(false);
 $('#copySubmission').onclick=()=>v06CopySubmission();
 $('#downloadDecision').onclick=()=>v06DownloadDecision();
 $('#applyPredictedDemand').onclick=()=>{model.decision.expectedDemand=Math.round(v02PredictDemand(model.decision));save();hydrateForms();v02Render();};
