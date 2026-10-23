@@ -1509,6 +1509,7 @@ function v09HeatClass(v,min,max){
 }
 function v09RenderMatrix(tableId,rowLabels,colLabels,values,rowTitle){
   const flat=values.flat().filter(Number.isFinite),min=Math.min(...flat),max=Math.max(...flat);
+  if(!flat.length){html(tableId,'<tbody><tr><td class="muted">No feasible cells.</td></tr></tbody>');return {min:NaN,max:NaN,spread:NaN,near1:0,near3:0,total:0};}
   let out='<thead><tr><th>'+rowTitle+'</th>'+colLabels.map(x=>'<th>'+x+'</th>').join('')+'</tr></thead><tbody>';
   for(let i=0;i<values.length;i++){
     out+='<tr><th>'+rowLabels[i]+'</th>';
@@ -1520,7 +1521,9 @@ function v09RenderMatrix(tableId,rowLabels,colLabels,values,rowTitle){
   }
   out+='</tbody>';
   html(tableId,out);
-  return {min,max,spread:max-min};
+  const near1=flat.filter(v=>v>=max-Math.max(1,Math.abs(max)*0.01)).length;
+  const near3=flat.filter(v=>v>=max-Math.max(1,Math.abs(max)*0.03)).length;
+  return {min,max,spread:max-min,near1,near3,total:flat.length};
 }
 function v09RunPriceProductionHeatmap(){
   const base=v09BaselineDecision(),priceSteps=[-0.20,-0.10,0,0.10,0.20],prodMult=[0.94,0.97,1,1.03,1.06];
@@ -1536,7 +1539,7 @@ function v09RunPriceProductionHeatmap(){
     vals.push(row);
   }
   const result=v09RenderMatrix('#ppHeatmapTable',prodMult.map(x=>(x*100).toFixed(0)+'% prod'),priceSteps.map(x=>E.money(Number(base.price||0)+x)),vals,'Production');
-  html('#ppHeatmapStatus','Heatmap centered on <b>'+E.money(base.price)+'</b> and <b>'+E.num(base.production)+'</b> units. Cells show terminal NPV after continuation re-optimization.');
+  html('#ppHeatmapStatus','Heatmap centered on <b>'+E.money(base.price)+'</b> and <b>'+E.num(base.production)+'</b> units. <b>'+result.near1+'/'+result.total+'</b> cells are within 1% of the local max; <b>'+result.near3+'/'+result.total+'</b> are within 3%. More near-optimal cells usually means a broader, less fragile optimum.');
   text('#sensLocalMax',E.money(result.max));text('#sensLocalMin',E.money(result.min));text('#sensLocalSpread',E.money(result.spread));
   return result;
 }
@@ -1556,7 +1559,7 @@ function v09RunSupportHeatmap(){
     vals.push(row);
   }
   const result=v09RenderMatrix('#supportHeatmapTable',mult.map(x=>(x*100).toFixed(0)+'% Mkt'),mult.map(x=>(x*100).toFixed(0)+'% R&D'),vals,'Marketing');
-  html('#supportHeatmapStatus','Support-spend heatmap recenters production to modeled demand so the table focuses on commercial-spend trade-offs rather than accidental stockouts.');
+  html('#supportHeatmapStatus','Support-spend heatmap recenters production to modeled demand. <b>'+result.near1+'/'+result.total+'</b> cells are within 1% of local max; <b>'+result.near3+'/'+result.total+'</b> are within 3%.');
   return result;
 }
 function v09DecisionKey(d){
