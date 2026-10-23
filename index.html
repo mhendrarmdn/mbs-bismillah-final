@@ -52,7 +52,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
       <button data-target="audit"><span class="ico">✓</span> Formula Audit</button>
       <button data-target="import"><span class="ico">⇩</span> HAR Import</button>
     </div>
-    <div class="side-note">v0.4 • rolling + uncertainty<br>Structural engine is based on verified Simulation 1 mechanics. Demand-response calibration is intentionally not guessed.</div>
+    <div class="side-note">v0.8 • live learning + rival scenarios<br>Structural engine is based on verified Simulation 1 mechanics. Demand-response calibration is intentionally not guessed.</div>
   </aside>
   <main class="main">
     <div class="topbar">
@@ -432,7 +432,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
 
     <section id="audit" class="section">
       <div class="grid g2">
-        <div class="card"><h3><span class="badge ok">VERIFIED FROM HAR</span></h3><div class="callout"><b>State-transition validation:</b> Backtest R2–R8 reproduces cash within ~$302 max error, ending equity within ~$373, and pre-tax profit within ~$631. R1 is excluded because the opening-state inventory treatment is special.</div><div class="spacer"></div>
+        <div class="card"><h3><span class="badge ok">VERIFIED FROM HAR</span></h3><div class="callout"><b>Validation discipline:</b> structural/accounting mechanics are separated from calibrated forecast relationships. Use Backtest & Confidence for the current engine&#39;s actual historical error; do not assume a fixed accuracy figure.</div><div class="spacer"></div>
           <p class="small">These reproduce observed Simulation 1 values.</p>
           <div class="formula">Equipment fee = Investment² / 10,000,000</div><br>
           <div class="formula">BVₜ = BVₜ₋₁ − floor(2.5% × BVₜ₋₁) + Investmentₜ</div><br>
