@@ -71,7 +71,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
       <button data-target="audit"><span class="ico">✓</span> Formula Audit</button>
       <button data-target="import"><span class="ico">⇩</span> HAR Import</button>
     </div>
-    <div class="side-note">v0.13 • live-safe hardening<br>Structural engine is based on verified Simulation 1 mechanics. Demand-response calibration is intentionally not guessed.</div>
+    <div class="side-note">v0.14 • heatmap formatting fix<br>Structural engine is based on verified Simulation 1 mechanics. Demand-response calibration is intentionally not guessed.</div>
   </aside>
   <main class="main">
     <div class="topbar">
@@ -459,7 +459,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
 
       <div class="grid g2">
         <div class="card">
-          <div class="title-row"><div><h3>Price × Production Heatmap</h3><div class="small muted">Each cell fixes the first decision, then re-optimizes the remaining rounds with a compact beam search.</div></div><button id="runPriceProdHeatmap" class="btn gold">Run heatmap</button></div>
+          <div class="title-row"><div><h3>Price × Production Heatmap</h3><div class="small muted">Columns = price in USD per finished unit (2 decimals). Rows = production as % of baseline. Darker blue = higher projected terminal NPV within this 5×5 neighborhood.</div></div><button id="runPriceProdHeatmap" class="btn gold">Run heatmap</button></div>
           <div class="spacer"></div>
           <div id="ppHeatmapStatus" class="callout">Run Rolling Optimizer first for the strongest baseline.</div>
           <div class="spacer"></div>
@@ -1825,7 +1825,7 @@ function v09RunPriceProductionHeatmap(){
   }
   const result=v09RenderMatrix('#ppHeatmapTable',prodMult.map(x=>(x*100).toFixed(0)+'% prod'),priceSteps.map(x=>E.price(Number(base.price||0)+x)),vals,'Production');
   v09LastPriceProdHeatmap={base:{...base},priceSteps,prodMult,values:vals,...result};
-  html('#ppHeatmapStatus','Heatmap centered on <b>'+E.money(base.price)+'</b> and <b>'+E.num(base.production)+'</b> units. <b>'+result.near1+'/'+result.total+'</b> cells are within 1% of the local max; <b>'+result.near3+'/'+result.total+'</b> are within 3%. More near-optimal cells usually means a broader, less fragile optimum.');
+  html('#ppHeatmapStatus','Heatmap centered on <b>'+E.price(base.price)+'</b> and <b>'+E.num(base.production)+'</b> finished units. <b>'+result.near1+'/'+result.total+'</b> cells are within 1% of the local max; <b>'+result.near3+'/'+result.total+'</b> are within 3%. More near-optimal cells usually means a broader, less fragile optimum.');
   text('#sensLocalMax',E.money(result.max));text('#sensLocalMin',E.money(result.min));text('#sensLocalSpread',E.money(result.spread));
   return result;
 }
