@@ -2698,8 +2698,22 @@ async function v16SyncFromMBS(){
     const res=await fetch('/api/mbs-sync',{method:'POST',headers:{'content-type':'application/json'},cache:'no-store'});
     const body=await res.json().catch(()=>({}));
     if(!res.ok || !body.ok){
+      const esc=v=>String(v??'').replace(/[&<>"]/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[ch]));
       const missing=Array.isArray(body.missing)?' Missing server env: '+body.missing.join(', ')+'.':'';
-      throw new Error((body.message||body.error||('HTTP '+res.status))+missing);
+      const lines=['<b>Sync failed:</b> '+esc(body.message||body.error||('HTTP '+res.status))+esc(missing)];
+      if(body.detected){
+        const d=body.detected;
+        lines.push('<span class="small muted">Detected: mode '+esc(d.mode||'—')+' • action '+esc(d.action||'—')+' • company field '+esc(d.companyField||'—')+' • role field '+esc(d.roleField||'—')+' • password field '+esc(d.passwordField||'—')+(d.lastLoginStatus!=null?' • HTTP '+esc(d.lastLoginStatus):'')+'</span>');
+      }
+      if(body.diagnostics){
+        const dg=body.diagnostics;
+        const eps=Array.isArray(dg.endpoints)?dg.endpoints.join(', '):'';
+        const ins=Array.isArray(dg.inputs)?dg.inputs.map(x=>(x.model||x.name||x.placeholder||x.type||'?')).join(', '):'';
+        lines.push('<span class="small muted">Login diagnostics: inputs ['+esc(ins||'none detected')+']'+(eps?' • endpoints ['+esc(eps)+']':'')+'</span>');
+      }
+      lines.push('<span class="small muted">HAR import still works as the fallback. Do not paste passwords into this page.</span>');
+      html('#mbsSyncStatus',lines.join('<br>'));
+      return;
     }
     const label='Live MBS Sync'+(body.meta?.companyName?' • '+body.meta.companyName:'');
     applyImportedDataset(body.data,label,'#mbsSyncStatus');
