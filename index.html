@@ -626,6 +626,17 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
       </div>
       <div class="spacer"></div>
       <div class="card">
+        <div class="title-row">
+          <div><h3>Direct TopBoss Sync</h3><div class="small muted">Read-only server-side login and data pull. It does not submit business decisions.</div></div>
+          <button id="syncMBS" class="btn gold">Sync from TopBoss</button>
+        </div>
+        <div class="spacer"></div>
+        <div class="callout"><b>Credential safety:</b> Company login, role, and password must be stored only as <b>Vercel Environment Variables</b>. They are never stored in this page, localStorage, workspace export, or GitHub.</div>
+        <div class="spacer"></div>
+        <div id="mbsSyncStatus" class="callout">Direct sync is idle. HAR import remains available as the manual fallback.</div>
+      </div>
+      <div class="spacer"></div>
+      <div class="card">
         <h3>What the parser looks for</h3>
         <div class="kpi-strip">
           <div class="pill">/decide/env<b>Environment</b></div>
@@ -2614,22 +2625,19 @@ $('#workspaceFile').onchange=async e=>{
   try{model=JSON.parse(await f.text());save();hydrateForms();alert('Workspace imported.');}catch(err){alert('Invalid workspace: '+err.message);}
 };
 
-function importHar(file){
-  const src=$('#har-worker-source').textContent;
-  const worker=new Worker(URL.createObjectURL(new Blob([src],{type:'text/javascript'})));
-  text('#harStatus','Starting parser…');
-  worker.onmessage=ev=>{
-    const msg=ev.data;
-    if(msg.type==='status') text('#harStatus',msg.message);
-    if(msg.type==='error'){text('#harStatus','Error: '+msg.message);worker.terminate();}
-    if(msg.type==='done'){
-      const x=msg.data; model.imported=x; model.source=`HAR • ${file.name}`;
-      if(x.environment) model.environment=x.environment;
-      model.rank=[]; model.gameFinished=false;
-      if(x.finance && x.operation){
-        const rounds=Object.keys(x.finance).map(Number).filter(Number.isFinite);
-        const latest=Math.max(...rounds);
-        const f=x.finance[String(latest)], o=x.operation[Math.min(latest,x.operation.length-1)];
+function applyImportedDataset(x,sourceLabel,statusTarget='#harStatus'){
+  if(!x) throw new Error('No TopBoss dataset received.');
+  let latest=null;
+  model.imported=x; model.source=sourceLabel||'TopBoss import';
+  if(x.environment) model.environment=x.environment;
+  model.rank=[]; model.gameFinished=false;
+
+  if(x.finance && x.operation){
+    const rounds=Object.keys(x.finance).map(Number).filter(Number.isFinite);
+    if(rounds.length){
+      latest=Math.max(...rounds);
+      const f=x.finance[String(latest)], o=x.operation[Math.min(latest,x.operation.length-1)];
+      if(f && o){
         model.initialEquity=x.finance["0"]?.balance?.equity || model.initialEquity;
         model.totalRounds=x.environment?.period || latest;
         model.gameFinished=latest>=Number(model.totalRounds);
@@ -2652,7 +2660,7 @@ function importHar(file){
             model.state.productImage=Number(row.product_image||model.state.productImage);
             model.state.marketShare=Number(row.market_share||model.state.marketShare);
           }
-        }catch(_){ }
+        }catch(_){}
         model.decision.projectedEndingEquity=f.balance.equity;
         model.actualDividends=[];
         for(let r=1;r<=latest;r++){
@@ -2669,12 +2677,54 @@ function importHar(file){
         const reconciliation=v07Reconcile(x,latest);
         if(reconciliation) model.lastReconciliation=reconciliation;
       }
-      save();hydrateForms();
-      const learned=model.lastReconciliation && Number(model.lastReconciliation.round)===latest;
-      const competitorPeriods=Array.isArray(x.salesPeriods)?x.salesPeriods.length:(Array.isArray(x.competitors?.north)?x.competitors.north.length:0);
-      const salesMsg=competitorPeriods>0?' Sales Status competitor history: '+competitorPeriods+' period(s).':' Sales Status competitor history NOT FOUND — open Sales Status and capture a fresh HAR.';
-      const rankMsg=model.gameFinished?(Array.isArray(model.rank)&&model.rank.length?' Final Rankings captured.':' Final round complete; open Rankings and capture it if you want final standings.'):' Rankings intentionally ignored/hidden until the final round.';
-      text('#harStatus',`Parsed ${x.entryCount} network entries. Environment, finance and operation loaded.`+salesMsg+rankMsg+(learned?' R'+latest+' forecast reconciled and corrections updated.':''));
+    }
+  }
+
+  save();hydrateForms();
+  try{render();}catch(_){}
+  const learned=latest!=null && model.lastReconciliation && Number(model.lastReconciliation.round)===latest;
+  const competitorPeriods=Array.isArray(x.salesPeriods)?x.salesPeriods.length:(Array.isArray(x.competitors?.north)?x.competitors.north.length:0);
+  const salesMsg=competitorPeriods>0?' Sales Status competitor history: '+competitorPeriods+' period(s).':' Sales Status competitor history NOT FOUND.';
+  const rankMsg=model.gameFinished?(Array.isArray(model.rank)&&model.rank.length?' Final Rankings captured.':' Final round complete; Rankings not captured.'):' Rankings intentionally ignored until the final round.';
+  const base=(sourceLabel||'TopBoss import')+' loaded.'+(latest!=null?' Latest completed round: R'+latest+'.':'');
+  text(statusTarget,base+salesMsg+rankMsg+(learned?' Forecast reconciliation updated.':''));
+  return {latest,competitorPeriods,gameFinished:model.gameFinished};
+}
+
+async function v16SyncFromMBS(){
+  text('#mbsSyncStatus','Connecting to TopBoss securely through the Vercel server…');
+  const btn=$('#syncMBS'); if(btn) btn.disabled=true;
+  try{
+    const res=await fetch('/api/mbs-sync',{method:'POST',headers:{'content-type':'application/json'},cache:'no-store'});
+    const body=await res.json().catch(()=>({}));
+    if(!res.ok || !body.ok){
+      const missing=Array.isArray(body.missing)?' Missing server env: '+body.missing.join(', ')+'.':'';
+      throw new Error((body.message||body.error||('HTTP '+res.status))+missing);
+    }
+    const label='Live MBS Sync'+(body.meta?.companyName?' • '+body.meta.companyName:'');
+    applyImportedDataset(body.data,label,'#mbsSyncStatus');
+    const meta=[];
+    if(body.meta?.gameName) meta.push(body.meta.gameName);
+    if(body.meta?.arena) meta.push('arena '+body.meta.arena);
+    if(body.meta?.role) meta.push('role '+body.meta.role);
+    if(meta.length) html('#mbsSyncStatus',$('#mbsSyncStatus').textContent+'<br><span class="small muted">'+meta.join(' • ')+'</span>');
+  }catch(err){
+    html('#mbsSyncStatus','<b>Sync failed:</b> '+String(err?.message||err)+'<br><span class="small muted">HAR import still works as the fallback. Do not paste passwords into this page.</span>');
+  }finally{
+    if(btn) btn.disabled=false;
+  }
+}
+
+function importHar(file){
+  const src=$('#har-worker-source').textContent;
+  const worker=new Worker(URL.createObjectURL(new Blob([src],{type:'text/javascript'})));
+  text('#harStatus','Starting parser…');
+  worker.onmessage=ev=>{
+    const msg=ev.data;
+    if(msg.type==='status') text('#harStatus',msg.message);
+    if(msg.type==='error'){text('#harStatus','Error: '+msg.message);worker.terminate();}
+    if(msg.type==='done'){
+      applyImportedDataset(msg.data,`HAR • ${file.name}`,'#harStatus');
       worker.terminate();
     }
   };
@@ -2686,6 +2736,7 @@ harInput.onchange=e=>{const f=e.target.files[0];if(f)importHar(f)};
 ['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('drag')}));
 ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('drag')}));
 drop.addEventListener('drop',e=>{const f=e.dataTransfer.files[0];if(f)importHar(f)});
+$('#syncMBS').onclick=()=>v16SyncFromMBS();
 
 $('#addActualDividend').onclick=()=>{
   const c=calculations();
