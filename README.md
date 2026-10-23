@@ -1,4 +1,4 @@
-# MBS Decision & NPV Engine — v0.2
+# MBS Decision & NPV Engine — v0.3
 
 A local-first decision workspace for the 2026 MBS E-Case Competition.
 
@@ -29,7 +29,11 @@ A local-first decision workspace for the 2026 MBS E-Case Competition.
 - Verified progressive marginal tax engine for Low / Moderate / High environments
 - Rolling labor/material/admin cost calibration from the most recent completed round and inflation index
 - Conservative / Base / Aggressive scenario comparison
-- Final-round candidate search (forecast-based; terminal round only)
+- Final-round candidate search using the v0.3 state-transition engine
+- Rolling multi-round optimizer from the active round through the terminal round
+- Competitor-aware demand model using relative price, quality, image, macro conditions, prior unmet demand, and prior market share
+- Product-quality, product-image, and conversion-factor response models
+- Automatic state transitions for cash, debt/overdraft, raw materials, FGI, equipment BV, capacity, replacement cost and equity
 - Deferred unmet-demand feature (50% carryover) in the empirical demand model
 - Verified single-shift management-expense and miscellaneous-expense formulas
 - One-click application of scenario packages back to the Decision Lab
@@ -61,5 +65,8 @@ The app separates three classes of logic:
 - **Calibrated**: empirical relationships fitted from the current game's historical rounds.
 - **Unknown / forecast**: never silently treated as exact.
 
+## Validation
+See `MODEL_VALIDATION.md`. The accounting/operations transition has been backtested against Simulation 1 R2-R8 and reproduces ending cash/equity/PBT within very small rounding differences.
+
 ## Next build target
-v0.3: maintenance-response calibration, full cash-flow / debt reconciliation, competitor-aware demand features, and rolling multi-round NPV projection for R1–R3. Final-round candidate search is already available.
+v0.4: live-round backtest/audit mode, scenario uncertainty bands, stronger raw-material price forecasting, and automatic strategy explanation (“why this decision beats the alternatives”).
