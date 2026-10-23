@@ -1264,7 +1264,7 @@ function v03BaseState(){
     conversion:Number(model.state.conversion||0.67),normalDebt:Number(model.state.normalDebt||0),abnormalDebt:Number(model.state.abnormalDebt||0),
     productQuality:Number(model.state.productQuality||row?.product_quality||0.3),productImage:Number(model.state.productImage||row?.product_image||0.6),
     marketShare:Number(model.state.marketShare||row?.market_share||0),materialPurchasePrice:Number(model.state.materialPurchasePrice||fin?.cash_flow?.mat_price||1),
-    laborUnit:v05LaborUnit(Number(model.currentRound)),deferredDemand:Math.max(0,Number(op?.sales?.potential_demand||0)-Number(op?.sales?.volume||0))*0.5,
+    laborUnit:v05LaborUnit(Number(model.currentRound))*Number(model.calibration?.laborScale||1),deferredDemand:Math.max(0,Number(op?.sales?.potential_demand||0)-Number(op?.sales?.volume||0))*0.5,
     dividends:[...(model.actualDividends||[])].slice(0,Math.max(0,Number(model.currentRound)-1)),
     maxOverdraft:Number(model.state.abnormalDebt||0), path:[]
   };
@@ -1375,7 +1375,8 @@ function v03Transition(state,decision,round,models=v03BehaviorModels(),shock=nul
   const beginFGValue=Number(state.finishedGoods||0)*Number(state.finishedGoodsUnitCost||3);
   const inventoryCgsAdjustment=beginFGValue-endFGValue;
   const revenue=sales*Number(decision.price||0);
-  const labor=v03LaborCost(production,Number(state.capacity||0),Number(state.laborUnit||1.5));
+  const laborUnitUsed=Number(state.laborUnit||1.5)*(shock?.laborUnitMult||1);
+  const labor=v03LaborCost(production,Number(state.capacity||0),laborUnitUsed);
   const material=rmUsed*Number(state.rawMaterialUnitCost||1);
   const depreciation=E.depreciationAmount(state.equipmentBV,0.025);
   const ordering=E.orderingCostEstimate(procurement,pi).estimated;
@@ -1406,7 +1407,7 @@ function v03Transition(state,decision,round,models=v03BehaviorModels(),shock=nul
     const known=v03Dataset().finance?.[String(round)]?.cash_flow?.mat_price;
     if(known!=null) nextPurchasePrice=Number(known);
   }
-  const nextLaborUnit=v05LaborUnit(round+1,Math.max(0,Number(model.currentRound||1)-1));
+  const nextLaborUnit=v05LaborUnit(round+1,Math.max(0,Number(model.currentRound||1)-1))*Number(model.calibration?.laborScale||1);
   const next={
     round:round+1,cash:cashEnd,equity,rawMaterial:endRM,rawMaterialUnitCost:endRMUnit,
     finishedGoods:endFG,finishedGoodsUnitCost:endFGUnit,equipmentBV,capacity:nextCapacity,replacementCost,
@@ -1891,6 +1892,7 @@ function v10RenderCompetition(){
   text('#compDemandCorrection',Number(model.calibration?.demandScale||1).toFixed(3)+'×');
   text('#compConversionBias',(Number(model.calibration?.conversionBias||0)>=0?'+':'')+Number(model.calibration?.conversionBias||0).toFixed(4));
   text('#compRMScale',Number(model.calibration?.rawPriceScale||1).toFixed(3)+'×');
+  text('#compLaborScale',Number(model.calibration?.laborScale||1).toFixed(3)+'×');
 
   const flags=v10RiskFlags(d);
   html('#compWarnings',flags.map(x=>'• '+x.text).join('<br>'));
@@ -2001,7 +2003,8 @@ function v09RunScenarioEnsemble(){
 /* v0.7 — RM cash-price forecast + locked submission snapshots + live reconciliation */
 function v07Ensure(){
   if(!model.submissionSnapshots) model.submissionSnapshots={};
-  if(!model.calibration) model.calibration={demandScale:1,conversionBias:0,rawPriceScale:1,lastReconciledRound:0};
+  if(!model.calibration) model.calibration={demandScale:1,conversionBias:0,rawPriceScale:1,laborScale:1,lastReconciledRound:0};
+  if(!Number.isFinite(Number(model.calibration.laborScale))) model.calibration.laborScale=1;
 }
 function v07Clamp(x,a,b){return Math.max(a,Math.min(b,x));}
 function v07EffectiveRMPrice(data,round){
@@ -2040,7 +2043,7 @@ function v07LockSnapshot(silent=false){
   const b=v03PredictBehavior(state,model.decision,round,models),tr=v03Transition(state,model.decision,round,models);
   model.submissionSnapshots[String(round)]={
     round,createdAt:new Date().toISOString(),decision:JSON.parse(JSON.stringify(model.decision)),
-    predicted:{demand:b.demand,conversion:b.conversion,sales:tr.metrics.sales,netProfit:tr.metrics.netProfit,cashEnd:tr.metrics.cashEnd,equity:tr.metrics.equity,rmPrice:Number(state.materialPurchasePrice||v07ForecastRMPrice(round))}
+    predicted:{demand:b.demand,conversion:b.conversion,sales:tr.metrics.sales,netProfit:tr.metrics.netProfit,cashEnd:tr.metrics.cashEnd,equity:tr.metrics.equity,rmPrice:Number(state.materialPurchasePrice||v07ForecastRMPrice(round)),laborUnit:Number(state.laborUnit||0)}
   };
   v08Journal('SUBMISSION LOCK',round,'Forecast locked; price '+Number(model.decision.price||0).toFixed(2)+', production '+Math.round(Number(model.decision.production||0))+'.',{decision:model.decision});
   save();
@@ -2052,14 +2055,15 @@ function v07Reconcile(data,round){
   const snap=model.submissionSnapshots?.[String(round)];
   if(!snap||Number(model.calibration.lastReconciledRound||0)>=round) return null;
   const o=data?.operation?.[round],f=data?.finance?.[String(round)]; if(!o||!f) return null;
-  const a={demand:Number(o.sales?.potential_demand||0),conversion:Number(o.inventory?.efficiency||0),sales:Number(o.sales?.volume||0),netProfit:Number(f.income?.net_profit_after_tax||0),cashEnd:Number(f.balance?.cash||0),equity:Number(f.balance?.equity||0),rmPrice:v07EffectiveRMPrice(data,round)};
+  const a={demand:Number(o.sales?.potential_demand||0),conversion:Number(o.inventory?.efficiency||0),sales:Number(o.sales?.volume||0),netProfit:Number(f.income?.net_profit_after_tax||0),cashEnd:Number(f.balance?.cash||0),equity:Number(f.balance?.equity||0),rmPrice:v07EffectiveRMPrice(data,round),laborUnit:Number(f.income?.unit_labor_cost||0)};
   const p=snap.predicted||{};
   const ratio=p.demand>0&&a.demand>0?a.demand/p.demand:1;
   model.calibration.demandScale=v07Clamp(0.55*Number(model.calibration.demandScale||1)+0.45*ratio,0.70,1.30);
   model.calibration.conversionBias=v07Clamp(0.55*Number(model.calibration.conversionBias||0)+0.45*(a.conversion-Number(p.conversion||a.conversion)),-0.03,0.03);
   if(a.rmPrice&&p.rmPrice>0) model.calibration.rawPriceScale=v07Clamp(0.60*Number(model.calibration.rawPriceScale||1)+0.40*(a.rmPrice/p.rmPrice),0.70,1.30);
+  if(a.laborUnit>0&&p.laborUnit>0) model.calibration.laborScale=v07Clamp(0.60*Number(model.calibration.laborScale||1)+0.40*(a.laborUnit/p.laborUnit),0.85,1.15);
   model.calibration.lastReconciledRound=round;
-  model.lastReconciliation={round,forecast:p,actual:a,error:{demand:a.demand-Number(p.demand||0),conversion:a.conversion-Number(p.conversion||0),sales:a.sales-Number(p.sales||0),netProfit:a.netProfit-Number(p.netProfit||0),cashEnd:a.cashEnd-Number(p.cashEnd||0),equity:a.equity-Number(p.equity||0),rmPrice:a.rmPrice&&p.rmPrice?a.rmPrice-p.rmPrice:null}};
+  model.lastReconciliation={round,forecast:p,actual:a,error:{demand:a.demand-Number(p.demand||0),conversion:a.conversion-Number(p.conversion||0),sales:a.sales-Number(p.sales||0),netProfit:a.netProfit-Number(p.netProfit||0),cashEnd:a.cashEnd-Number(p.cashEnd||0),equity:a.equity-Number(p.equity||0),rmPrice:a.rmPrice&&p.rmPrice?a.rmPrice-p.rmPrice:null,laborUnit:a.laborUnit&&p.laborUnit?a.laborUnit-p.laborUnit:null}};
   v08Journal('ROUND RECONCILED',round,'Demand error '+Math.round(model.lastReconciliation.error.demand)+'; profit error '+Math.round(model.lastReconciliation.error.netProfit)+'.',{reconciliation:model.lastReconciliation,calibration:model.calibration});
   return model.lastReconciliation;
 }
@@ -2069,12 +2073,14 @@ function v07RenderLearning(){
   text('#learnDemandScale',Number(c.demandScale||1).toFixed(3)+'×');
   text('#learnConversionBias',(Number(c.conversionBias||0)>=0?'+':'')+Number(c.conversionBias||0).toFixed(4));
   text('#learnRMScale',Number(c.rawPriceScale||1).toFixed(3)+'×');
+  text('#learnLaborScale',Number(c.laborScale||1).toFixed(3)+'×');
   text('#learnRMForecast',E.money(v07ForecastRMPrice(Number(model.currentRound))));
   text('#learningBadge',r?'Reconciled R'+r.round:(snap?'Snapshot R'+model.currentRound:'No snapshot yet'));
   $('#learningBadge').className='badge '+(r?'ok':snap?'warn':'info');
   if(!r){html('#learningBody','<tr><td colspan="4" class="muted">No reconciled submitted round yet.</td></tr>');html('#learningStatus',snap?'Snapshot locked. Import the post-round HAR to reconcile.':'Lock a forecast immediately before submission.');return;}
   const rows=[['Demand',r.forecast.demand,r.actual.demand,r.error.demand,'n'],['Conversion',r.forecast.conversion,r.actual.conversion,r.error.conversion,'d'],['Sales',r.forecast.sales,r.actual.sales,r.error.sales,'n'],['Net profit',r.forecast.netProfit,r.actual.netProfit,r.error.netProfit,'m'],['Cash',r.forecast.cashEnd,r.actual.cashEnd,r.error.cashEnd,'m'],['Equity',r.forecast.equity,r.actual.equity,r.error.equity,'m']];
   if(r.actual.rmPrice) rows.push(['RM cash price',r.forecast.rmPrice,r.actual.rmPrice,r.error.rmPrice,'d']);
+  if(r.actual.laborUnit) rows.push(['Labor unit cost',r.forecast.laborUnit,r.actual.laborUnit,r.error.laborUnit,'d']);
   const fmt=(v,t)=>t==='m'?E.money(v):t==='d'?Number(v||0).toFixed(4):E.num(v);
   html('#learningBody',rows.map(x=>'<tr><td>'+x[0]+'</td><td>'+fmt(x[1],x[4])+'</td><td>'+fmt(x[2],x[4])+'</td><td>'+fmt(x[3],x[4])+'</td></tr>').join(''));
   html('#learningStatus','Round '+r.round+' learned. Demand, conversion, and RM-price correction factors were updated.');
