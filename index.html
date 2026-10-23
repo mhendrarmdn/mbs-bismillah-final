@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MBS Decision & NPV Engine</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="brand"><div class="logo">M</div><div><h1>MBS Decision Engine</h1><small>NPV-first competition workspace</small></div></div>
+    <div class="nav">
+      <button class="active" data-target="dashboard"><span class="ico">◫</span> Control Center</button>
+      <button data-target="setup"><span class="ico">⚙</span> Game Setup</button>
+      <button data-target="decision"><span class="ico">◎</span> Decision Lab</button>
+      <button data-target="audit"><span class="ico">✓</span> Formula Audit</button>
+      <button data-target="import"><span class="ico">⇩</span> HAR Import</button>
+    </div>
+    <div class="side-note">MVP v0.1<br>Structural engine is based on verified Simulation 1 mechanics. Demand-response calibration is intentionally not guessed.</div>
+  </aside>
+  <main class="main">
+    <div class="topbar">
+      <div><h2 id="pageTitle">Control Center</h2><p id="pageSub">Structural decision engine • verified mechanics first</p></div>
+      <div class="actions"><button id="useSample" class="btn">Load Simulation 1 sample</button><button id="exportWorkspace" class="btn">Export workspace</button><label class="btn">Import workspace<input id="workspaceFile" type="file" accept=".json" hidden></label><button id="newGame" class="btn danger">New game</button></div>
+    </div>
+
+    <section id="dashboard" class="section active">
+      <div class="callout gold"><b>Purpose:</b> maximize NPV without hard-coding the old simulation state. Verified mechanics are calculated exactly; unknown demand/behavioral functions stay visible as calibration gaps instead of being fabricated.</div>
+      <div class="spacer"></div>
+      <div class="grid g4">
+        <div class="card metric"><div class="label">Round</div><div class="value" id="mRound">—</div><div class="foot" id="sourceLabel">—</div></div>
+        <div class="card metric"><div class="label">Cash</div><div class="value" id="mCash">—</div><div class="foot">Current state</div></div>
+        <div class="card metric"><div class="label">Owner's Equity</div><div class="value" id="mEquity">—</div><div class="foot">Current state</div></div>
+        <div class="card metric"><div class="label">Structural NPV if horizon ended here</div><div class="value" id="mTerminalNPV">—</div><div class="foot">Uses editable projected ending equity</div></div>
+      </div>
+      <div class="spacer"></div>
+      <div class="grid g2">
+        <div class="card">
+          <div class="title-row"><h3>Operating readiness</h3><span class="badge info" id="envSummary">—</span></div>
+          <div class="kpi-strip"><div class="pill">Capacity<b id="mCapacity">—</b></div><div class="pill">Conversion<b id="mConversion">—</b></div><div class="pill">Next capacity<b id="mNextCapacity">—</b></div><div class="pill">Replacement cost<b id="mReplacement">—</b></div></div>
+          <hr>
+          <div class="small muted">Product coverage vs expected demand</div><div class="progress"><div id="demandBar"></div></div><div class="small" id="demandCoverage">—</div>
+          <div class="spacer"></div><div class="small muted">Current raw material coverage</div><div class="progress"><div id="rmBar"></div></div><div class="small" id="rmCoverage">—</div>
+        </div>
+        <div class="card"><h3>Decision risk checks</h3><div id="riskList"></div></div>
+      </div>
+      <div class="spacer"></div>
+      <div class="card">
+        <div class="title-row"><h3>Ranking snapshot</h3><span class="badge ok">HAR import supported</span></div>
+        <div class="scroll"><table><thead><tr><th>Team</th><th>NPV</th><th>Equity</th><th>Total dividend</th><th>Avg sales</th></tr></thead><tbody id="rankBody"></tbody></table></div>
+      </div>
+    </section>
+
+    <section id="setup" class="section">
+      <div class="grid g2">
+        <div class="card"><h3>Game configuration</h3>
+          <div class="form-grid">
+            <div class="field"><label>Total rounds</label><input id="totalRounds" type="number"></div>
+            <div class="field"><label>Current round</label><input id="currentRound" type="number"></div>
+            <div class="field"><label>Annual discount / interest rate (%)</label><input id="annualRate" type="number" step=".1"></div>
+            <div class="field"><label>Dividend equity floor</label><input id="equityFloor" type="number"></div>
+            <div class="field"><label>Initial owner's equity</label><input id="initialEquity" type="number"></div>
+            <div class="field"><label>Economy growth index</label><input id="growthIndex"></div>
+            <div class="field"><label>Current price index</label><input id="currentPI" type="number" step=".001"></div>
+            <div class="field"><label>Next price index</label><input id="nextPI" type="number" step=".001"></div>
+          </div>
+        </div>
+        <div class="card"><h3>Environment</h3>
+          <div class="form-grid">
+            <div class="field"><label>Price elasticity</label><select id="priceElasticity"><option>Low</option><option>Medium</option><option>High</option><option>Unknown</option></select></div>
+            <div class="field"><label>Market activity</label><select id="marketActivity"><option>Low</option><option>Medium</option><option>High</option><option>Unknown</option></select></div>
+            <div class="field"><label>R&D influence</label><select id="rdInfluence"><option>Low</option><option>Medium</option><option>High</option><option>Unknown</option></select></div>
+            <div class="field"><label>Maintenance influence</label><select id="maintenanceInfluence"><option>Low</option><option>Medium</option><option>High</option><option>Unknown</option></select></div>
+            <div class="field"><label>Inflation</label><select id="inflation"><option>Low</option><option>Medium</option><option>High</option><option>Unknown</option></select></div>
+          </div>
+          <div class="spacer"></div><div class="callout">Environment is stored as an input, not a hard-coded strategy. The next optimizer layer will calibrate demand-response coefficients by environment and round.</div>
+        </div>
+      </div>
+      <div class="spacer"></div>
+      <div class="card"><h3>Current company state</h3>
+        <div class="form-grid">
+          <div class="field"><label>Cash</label><input id="cash" type="number"></div>
+          <div class="field"><label>Owner's equity</label><input id="equity" type="number"></div>
+          <div class="field"><label>Raw material available now</label><input id="rawMaterial" type="number"></div>
+          <div class="field"><label>Finished goods inventory</label><input id="finishedGoods" type="number"></div>
+          <div class="field"><label>Equipment book value</label><input id="equipmentBV" type="number"></div>
+          <div class="field"><label>Replacement cost</label><input id="replacementCost" type="number"></div>
+          <div class="field"><label>Production capacity</label><input id="capacity" type="number"></div>
+          <div class="field"><label>Conversion factor</label><input id="conversion" type="number" step=".0001"></div>
+          <div class="field"><label>Normal debt</label><input id="normalDebt" type="number"></div>
+          <div class="field"><label>Abnormal debt</label><input id="abnormalDebt" type="number"></div>
+        </div>
+        <div class="spacer"></div><button id="saveSetup" class="btn primary">Save setup & recalculate</button>
+      </div>
+    </section>
+
+    <section id="decision" class="section">
+      <div class="grid g2">
+        <div class="card"><h3>Eight management decisions</h3>
+          <div class="form-grid">
+            <div class="field"><label>Price</label><input id="price" type="number" step=".01"></div>
+            <div class="field"><label>Production request</label><input id="production" type="number"></div>
+            <div class="field"><label>Expected demand</label><input id="expectedDemand" type="number"></div>
+            <div class="field"><label>Marketing</label><input id="marketing" type="number"></div>
+            <div class="field"><label>R&D</label><input id="rd" type="number"></div>
+            <div class="field"><label>Procurement quantity</label><input id="procurement" type="number"></div>
+            <div class="field"><label>Maintenance</label><input id="maintenance" type="number"></div>
+            <div class="field"><label>Equipment investment</label><input id="equipment" type="number"></div>
+            <div class="field"><label>Proposed dividend</label><input id="dividend" type="number"></div>
+            <div class="field"><label>Projected ending equity</label><input id="projectedEndingEquity" type="number"></div>
+          </div>
+          <div class="spacer"></div><div class="callout gold">Expected demand and projected ending equity are deliberately editable in v0.1. The next calibration layer will estimate them automatically from environment + competitors + round history.</div>
+        </div>
+        <div class="card"><h3>Structural result</h3>
+          <div class="grid g2">
+            <div class="pill">Actual dividend<b id="mActualDividend">—</b></div>
+            <div class="pill">Equipment fee<b id="rEquipmentFee">—</b></div>
+            <div class="pill">Added capacity<b id="rAddedCapacity">—</b></div>
+            <div class="pill">Next equipment BV<b id="rNextBV">—</b></div>
+            <div class="pill">Replacement cost<b id="rRC">—</b></div>
+            <div class="pill">Economic equity<b id="rEE">—</b></div>
+            <div class="pill">PV dividends<b id="rPVDiv">—</b></div>
+            <div class="pill">PV terminal value<b id="rPVTerminal">—</b></div>
+            <div class="pill">NPV<b id="rNPV">—</b></div>
+            <div class="pill">RM required<b id="rRMNeed">—</b></div>
+            <div class="pill">Ordering cost estimate<b id="rOrdering">—</b><span id="rOrderBand" class="small muted"></span></div>
+            <div class="pill">Terminal equipment structural Δ<b id="rTerminalEquip">—</b></div>
+          </div>
+          <div class="spacer"></div><button id="addActualDividend" class="btn">Store this round's actual dividend</button>
+          <div class="spacer"></div><div id="historySummary" class="small muted"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="audit" class="section">
+      <div class="grid g2">
+        <div class="card"><h3><span class="badge ok">VERIFIED FROM HAR</span></h3>
+          <p class="small">These reproduce observed Simulation 1 values.</p>
+          <div class="formula">Equipment fee = Investment² / 10,000,000</div><br>
+          <div class="formula">BVₜ = BVₜ₋₁ − floor(2.5% × BVₜ₋₁) + Investmentₜ</div><br>
+          <div class="formula">Next Capacity = floor(Capacity × 0.975) + floor(Investment / (20 × Current Price Index))</div><br>
+          <div class="formula">Replacement Cost = Next Capacity × 20 × Next Price Index</div><br>
+          <div class="formula">Economic Equity = Owner's Equity − Equipment BV + Replacement Cost</div><br>
+          <div class="formula">Actual Dividend = min(Proposed, max(0, Beginning Equity − Equity Floor))</div>
+        </div>
+        <div class="card"><h3><span class="badge warn">CALIBRATION REQUIRED</span></h3>
+          <div class="risk"><span class="dot orange"></span><div><b>Demand function</b><p>Price × Marketing × R&D × competitor interaction still needs empirical calibration across environments.</p></div></div>
+          <div class="risk"><span class="dot orange"></span><div><b>Maintenance response curve</b><p>Conversion-factor response must be fit from actual rounds; do not assume a universal coefficient.</p></div></div>
+          <div class="risk"><span class="dot orange"></span><div><b>Full P&L forecast</b><p>Tax, inventory valuation, labor/overtime and miscellaneous-expense interactions will be added after reconciliation tests.</p></div></div>
+          <div class="risk"><span class="dot orange"></span><div><b>Automatic optimizer</b><p>Will be enabled only after the forecast model passes out-of-sample checks against the HAR.</p></div></div>
+        </div>
+      </div>
+      <div class="spacer"></div>
+      <div class="card"><h3>NPV formula</h3><div class="formula">NPV = Σ[Dᵢ / (1 + k/4)ⁱ] + EconomicEquityₙ / (1 + k/4)ⁿ − InitialOwnerEquity</div></div>
+    </section>
+
+    <section id="import" class="section">
+      <div class="card">
+        <h3>Import TopBoss HAR</h3>
+        <div id="harDrop" class="drop"><b>Drop .HAR here</b><p class="muted small">Parsing happens locally in your browser; the file is not uploaded by this static MVP.</p><button id="chooseHar" class="btn primary">Choose HAR file</button><input id="harFile" type="file" accept=".har,application/json"></div>
+        <div class="spacer"></div><div id="harStatus" class="callout">No HAR imported in this session.</div>
+      </div>
+      <div class="spacer"></div>
+      <div class="card"><h3>What the parser looks for</h3><div class="kpi-strip"><div class="pill">/decide/env<b>Environment</b></div><div class="pill">/analyse/operation<b>Round history</b></div><div class="pill">/report/finance<b>Financials</b></div><div class="pill">/bus/boom<b>Economy</b></div><div class="pill">/decide/rank<b>NPV ranking</b></div><div class="pill">/bus/sales<b>Competitors</b></div></div></div>
+    </section>
+  </main>
+</div>
+<script id="har-worker-source" type="text/plain">
+self.onmessage = async (ev) => {
+  try{
+    const file=ev.data.file;
+    self.postMessage({type:'status',message:'Reading HAR file…'});
+    const text=await file.text();
+    self.postMessage({type:'status',message:'Parsing HAR JSON…'});
+    const har=JSON.parse(text);
+    const entries=har?.log?.entries||[];
+
+    function decodeContent(content){
+      let t=content?.text||'';
+      if(content?.encoding==='base64'){
+        try{
+          const bin=atob(t); const bytes=new Uint8Array(bin.length);
+          for(let i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+          t=new TextDecoder().decode(bytes);
+        }catch(_){}
+      }
+      return t;
+    }
+    function page(suffix){
+      let out='';
+      for(const e of entries){
+        const url=(e.request?.url||'').split('?')[0];
+        if(url.endsWith(suffix)) out=decodeContent(e.response?.content||{});
+      }
+      return out;
+    }
+    function rawAfter(text, marker, from=0){
+      const pos=text.indexOf(marker,from);
+      if(pos<0) return null;
+      let i=pos+marker.length;
+      while(/\s/.test(text[i]||'')) i++;
+      const open=text[i], close=open==='['?']':open==='{'?'}':null;
+      if(!close) return null;
+      let depth=0, str=false, esc=false;
+      for(let j=i;j<text.length;j++){
+        const ch=text[j];
+        if(str){
+          if(esc) esc=false;
+          else if(ch==='\\') esc=true;
+          else if(ch==='"') str=false;
+        } else {
+          if(ch==='"') str=true;
+          else if(ch===open) depth++;
+          else if(ch===close){
+            depth--;
+            if(depth===0){
+              try{return JSON.parse(text.slice(i,j+1));}catch(_){return null;}
+            }
+          }
+        }
+      }
+      return null;
+    }
+    function findCompanyArray(text){
+      let from=0;
+      while(true){
+        const p=text.indexOf('data:',from);
+        if(p<0) return null;
+        const v=rawAfter(text,'data:',p);
+        if(Array.isArray(v) && v.length && v[0] && 'company_name' in v[0] && 'npv' in v[0]) return v;
+        from=p+5;
+      }
+    }
+
+    const operation=rawAfter(page('/analyse/operation'),'sales_data: ');
+    const finance=rawAfter(page('/report/finance'),'data_list: ');
+    const environment=rawAfter(page('/decide/env'),'period_data: ');
+    const economy=rawAfter(page('/bus/boom'),'period_data: ');
+    const rank=findCompanyArray(page('/decide/rank'));
+    const salesPage=page('/bus/sales');
+    const competitors={
+      north:rawAfter(salesPage,'north_list: '),
+      middle:rawAfter(salesPage,'middle_list: '),
+      south:rawAfter(salesPage,'south_list: '),
+      foreign:rawAfter(salesPage,'foreign_list: ')
+    };
+    self.postMessage({
+      type:'done',
+      data:{environment,economy,operation,finance,rank,competitors,entryCount:entries.length}
+    });
+  }catch(err){
+    self.postMessage({type:'error',message:String(err?.message||err)});
+  }
+};
+</script>
+<script src="engine.js"></script><script src="app.js"></script>
+</body></html>
