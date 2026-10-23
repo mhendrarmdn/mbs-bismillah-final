@@ -1877,6 +1877,13 @@ function v10Confidence(){
   if(!parts)return {label:'NOT READY',score:0,hasCompetitors:hasComp};
   let ratio=score/parts;
   if(model.appMode==='competition' && !hasComp) ratio=Math.min(ratio,0.35);
+  if(model.appMode==='competition' && hasComp){
+    const completed=Math.max(0,Number(model.currentRound||1)-1);
+    const reconciled=Number(model.calibration?.lastReconciledRound||0);
+    if(completed===0) ratio=Math.min(ratio,0.45);
+    else if(completed===1) ratio=Math.min(ratio,0.68);
+    if(reconciled<completed) ratio=Math.min(ratio,0.58);
+  }
   return {label:ratio>=0.78?'HIGH':ratio>=0.50?'MEDIUM':'LOW',score:ratio,hasCompetitors:hasComp};
 }
 function v10RiskFlags(decision){
@@ -1896,6 +1903,7 @@ function v10RiskFlags(decision){
   if(v09LastEnsemble?.[0]?.worst<0) flags.push({level:'warn',text:'Robust leader has negative NPV in at least one rival scenario.'});
   if(v09LastPriceProdHeatmap?.total && v09LastPriceProdHeatmap.near1<=2) flags.push({level:'warn',text:'Price/production optimum is narrow: only '+v09LastPriceProdHeatmap.near1+' of '+v09LastPriceProdHeatmap.total+' cells are within 1% of local max.'});
   if(model.appMode==='competition' && !v10HasCompetitorSnapshot()) flags.push({level:'warn',text:'Competitor snapshot is missing. Rival-scenario results are not decision-grade until a current HAR with sales/competition rows is imported.'});
+  if(model.appMode==='competition' && !v03BehaviorModels().demand) flags.push({level:'warn',text:'Demand forecast is prior-assisted because the current game has fewer than 4 usable competitor-aware demand observations. Treat P10/P50/P90 and ensemble robustness as more important than the point forecast.'});
   if(!flags.length) flags.push({level:'ok',text:'No structural block detected. Forecast uncertainty still applies.'});
   return flags;
 }
@@ -2282,10 +2290,11 @@ function v12LaborRelativeSigma(){
 }
 function v04StressBestPath(n=300){
   const res=v03LastRollingResult; if(!res?.best?.path?.length) return null;
-  const models=res.models||v03BehaviorModels(), demandSigma=Math.max(1,Number(models.demand?.residualSd||models.demand?.mae*1.25||35000));
-  const convSigma=Math.max(0.001,Number(models.conversion?.residualSd||models.conversion?.mae*1.25||0.008));
-  const qualitySigma=Math.max(0,Number(models.quality?.residualSd||0));
-  const imageSigma=Math.max(0,Number(models.image?.residualSd||0));
+  const models=res.models||v03BehaviorModels();
+  const demandSigma=Math.max(1,Number(models.demand?.residualSd||models.demand?.mae*1.25||V13_COMPETITOR_PRIOR.demand.residualSd*1.35||65000));
+  const convSigma=Math.max(0.001,Number(models.conversion?.residualSd||models.conversion?.mae*1.25||V13_COMPETITOR_PRIOR.conversion.residualSd||0.008));
+  const qualitySigma=Math.max(0,Number(models.quality?.residualSd||V13_COMPETITOR_PRIOR.quality.residualSd||0));
+  const imageSigma=Math.max(0,Number(models.image?.residualSd||V13_COMPETITOR_PRIOR.image.residualSd||0));
   const rawPriceSigma=Math.max(0.01,Math.min(0.35,Number(v07RMFit()?.residualSd||0.10)));
   const laborSigma=v12LaborRelativeSigma();
   const npvs=[]; let od=0, positive=0;
