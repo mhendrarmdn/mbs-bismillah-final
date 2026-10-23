@@ -73,3 +73,17 @@ v0.5 prevents same-game future rounds from being used to fit the live competitor
 - Backtest diagnostics use the same round-by-round information cutoff.
 
 This reduces retrospective look-ahead bias, but the Simulation-1 prior can still be structurally wrong if the competition environment differs materially.
+
+
+## Post-round reconciliation
+
+v0.7 adds a deliberately short-memory correction layer for live competition use:
+
+1. Lock a forecast snapshot immediately before submitting a round.
+2. Import the HAR after TopBoss calculates the round.
+3. Compare predicted vs actual demand, conversion, sales, net profit, ending cash and ending equity.
+4. Update bounded demand-scale and conversion-bias corrections.
+5. If procurement cash price can be isolated cleanly, update a bounded raw-material-price scale.
+6. Re-run the rolling optimizer for the next round.
+
+The correction is shrunk once a current-game response model has enough observations, so one noisy round does not permanently dominate the forecast.
