@@ -159,6 +159,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
             <div class="pill">Demand correction<b id="compDemandCorrection">—</b></div>
             <div class="pill">Conversion bias<b id="compConversionBias">—</b></div>
             <div class="pill">RM-price scale<b id="compRMScale">—</b></div>
+            <div class="pill">Labor-cost scale<b id="compLaborScale">—</b></div>
           </div>
         </div>
       </div>
@@ -524,6 +525,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
           <div class="pill">Demand scale correction<b id="learnDemandScale">1.000×</b></div>
           <div class="pill">Conversion bias<b id="learnConversionBias">0.0000</b></div>
           <div class="pill">RM cash-price scale<b id="learnRMScale">1.000×</b></div>
+          <div class="pill">Labor-cost scale<b id="learnLaborScale">1.000×</b></div>
           <div class="pill">Next RM cash-price forecast<b id="learnRMForecast">—</b></div>
         </div>
         <div class="spacer"></div>
@@ -560,6 +562,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
           <div class="pill">Demand sigma used<b id="stressDemandSigma">—</b></div>
           <div class="pill">Conversion sigma used<b id="stressConvSigma">—</b></div>
           <div class="pill">RM price sigma used<b id="stressRMSigma">—</b></div>
+          <div class="pill">Labor sigma used<b id="stressLaborSigma">—</b></div>
         </div>
       </div>
 
@@ -843,7 +846,7 @@ let model={
   imported:null,
   rank:[],
   submissionSnapshots:{},
-  calibration:{demandScale:1,conversionBias:0,rawPriceScale:1,lastReconciledRound:0},
+  calibration:{demandScale:1,conversionBias:0,rawPriceScale:1,laborScale:1,lastReconciledRound:0},
   lastReconciliation:null,
   roundJournal:[],
   competitorScenario:'hold',
