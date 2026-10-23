@@ -33,6 +33,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
 .drop{border:2px dashed #bac9da;border-radius:14px;padding:24px;text-align:center;background:#fbfdff}.drop.drag{border-color:var(--gold);background:#fffbed}.drop input{display:none}
 .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.muted{color:var(--muted)}.small{font-size:11px}.title-row{display:flex;justify-content:space-between;align-items:center;gap:10px}.spacer{height:16px}
 .kpi-strip{display:flex;gap:10px;flex-wrap:wrap}.pill{padding:8px 10px;background:#f3f6fa;border-radius:9px;font-size:11px}.pill b{display:block;font-size:14px;margin-top:3px}
+.heatcell{min-width:92px;text-align:center!important;font-weight:750;border-radius:6px}.heat-0{background:#eef2f7}.heat-1{background:#d9e5f2}.heat-2{background:#b6cee7}.heat-3{background:#7ea7d0}.heat-4{background:#3f76ad;color:#fff}.heat-5{background:#123f73;color:#fff}.smallbtn{padding:6px 9px;font-size:11px}
 @media(max-width:1100px){.app{grid-template-columns:1fr}.sidebar{height:auto;position:relative}.nav{display:flex;overflow:auto}.nav button{min-width:150px}.side-note{display:none}.g4{grid-template-columns:repeat(2,1fr)}.form-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:680px){.main{padding:16px}.g4,.g3,.g2,.form-grid{grid-template-columns:1fr}.topbar{display:block}.actions{margin-top:12px}}
 </style>
@@ -48,6 +49,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
       <button data-target="calibration"><span class="ico">∿</span> Calibration & Forecast</button>
       <button data-target="scenarios"><span class="ico">◇</span> Scenario Lab</button>
       <button data-target="rolling"><span class="ico">↻</span> Rolling Optimizer</button>
+      <button data-target="sensitivity"><span class="ico">▦</span> Sensitivity Lab</button>
       <button data-target="backtest"><span class="ico">≋</span> Backtest & Confidence</button>
       <button data-target="audit"><span class="ico">✓</span> Formula Audit</button>
       <button data-target="import"><span class="ico">⇩</span> HAR Import</button>
@@ -331,6 +333,50 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
       </div>
     </section>
 
+
+
+    <section id="sensitivity" class="section">
+      <div class="callout gold"><b>Robustness first.</b> A high projected NPV is not enough if it collapses after a tiny change in price, production, or rival behavior. This page tests the shape of the decision surface around the current best first-round decision.</div>
+      <div class="spacer"></div>
+
+      <div class="grid g2">
+        <div class="card">
+          <div class="title-row"><div><h3>Price × Production Heatmap</h3><div class="small muted">Each cell fixes the first decision, then re-optimizes the remaining rounds with a compact beam search.</div></div><button id="runPriceProdHeatmap" class="btn gold">Run heatmap</button></div>
+          <div class="spacer"></div>
+          <div id="ppHeatmapStatus" class="callout">Run Rolling Optimizer first for the strongest baseline.</div>
+          <div class="spacer"></div>
+          <div class="scroll"><table id="ppHeatmapTable"><tbody><tr><td class="muted">No heatmap yet.</td></tr></tbody></table></div>
+        </div>
+
+        <div class="card">
+          <div class="title-row"><div><h3>Marketing × R&D Heatmap</h3><div class="small muted">Tests whether the support-spending optimum is broad or knife-edge.</div></div><button id="runSupportHeatmap" class="btn gold">Run heatmap</button></div>
+          <div class="spacer"></div>
+          <div id="supportHeatmapStatus" class="callout">No support-spend sensitivity run yet.</div>
+          <div class="spacer"></div>
+          <div class="scroll"><table id="supportHeatmapTable"><tbody><tr><td class="muted">No heatmap yet.</td></tr></tbody></table></div>
+        </div>
+      </div>
+
+      <div class="spacer"></div>
+      <div class="card">
+        <div class="title-row"><div><h3>Scenario Ensemble Ranking</h3><div class="small muted">Candidate first decisions are generated from Hold / Price War / Stronger / Adverse rival assumptions, then scored across all four scenarios.</div></div><button id="runEnsemble" class="btn primary">Run ensemble</button></div>
+        <div class="spacer"></div>
+        <div id="ensembleStatus" class="callout">No ensemble run yet.</div>
+        <div class="spacer"></div>
+        <div class="scroll"><table>
+          <thead><tr><th>Rank</th><th>Source</th><th>Price</th><th>Prod.</th><th>Mkt</th><th>R&D</th><th>Worst NPV</th><th>Mean NPV</th><th>Best NPV</th><th>Std. dev.</th><th>Robust score</th><th></th></tr></thead>
+          <tbody id="ensembleBody"><tr><td colspan="12" class="muted">No ensemble result yet.</td></tr></tbody>
+        </table></div>
+      </div>
+
+      <div class="spacer"></div>
+      <div class="grid g4">
+        <div class="card metric"><div class="label">Heatmap local max</div><div class="value" id="sensLocalMax">—</div><div class="foot">Best first-decision neighborhood NPV</div></div>
+        <div class="card metric"><div class="label">Heatmap local min</div><div class="value" id="sensLocalMin">—</div><div class="foot">Worst tested neighborhood NPV</div></div>
+        <div class="card metric"><div class="label">Local spread</div><div class="value" id="sensLocalSpread">—</div><div class="foot">Max − min; lower can mean broader optimum</div></div>
+        <div class="card metric"><div class="label">Robust ensemble leader</div><div class="value" id="sensRobustLeader" style="font-size:18px">—</div><div class="foot">Highest mean-minus-volatility score</div></div>
+      </div>
+    </section>
 
     <section id="backtest" class="section">
       <div class="grid g4">
@@ -717,6 +763,7 @@ function nav(id){
     calibration:['Calibration & Forecast','Empirical demand model and transparent P&L forecast'],
     scenarios:['Scenario Lab','Stress-test alternative decision packages'],
     rolling:['Rolling Optimizer','Beam-search decisions from the active round through the terminal round'],
+    sensitivity:['Sensitivity Lab','Test whether the recommended first decision is robust or overfit'],
     backtest:['Backtest & Confidence','Historical strategy audit and uncertainty stress test'],
     audit:['Formula Audit','Verified formulas, assumptions, and remaining calibration gaps'],
     import:['HAR Import','Read TopBoss data directly from a browser HAR capture']
