@@ -1209,7 +1209,7 @@ function v03BehaviorModels(maxRound=(model.appMode==='practice' ? Math.max(0,(v0
   const data=v03Dataset(), op=data.operation||[], own=v03InferOwnCompany(data);
   if(!own || !v03North(data) || op.length<4) return {own,demand:null,quality:null,image:null,conversion:null};
   const dRows=[],qRows=[],iRows=[],cRows=[];
-  for(let r=1;r<op.length;r++){
+  for(let r=1;r<op.length && r<=maxRound;r++){
     const row=v03OwnSalesRow(data,r,own), prev=v03OwnSalesRow(data,r-1,own), o=op[r], po=op[r-1];
     if(!row||!prev||!o||!po) continue;
     const cs=v03CompStats(data,r,own), prevShare=Number(prev.market_share||0);
