@@ -256,7 +256,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
           <div class="formula">Next Capacity = floor(Capacity × 0.975) + floor(Investment / (20 × Current Price Index))</div><br>
           <div class="formula">Replacement Cost = Next Capacity × 20 × Next Price Index</div><br>
           <div class="formula">Economic Equity = Owner's Equity − Equipment BV + Replacement Cost</div><br>
-          <div class="formula">Actual Dividend = min(Proposed, max(0, Beginning Equity − Equity Floor))</div>
+          <div class="formula">Actual Dividend = min(Proposed, max(0, Beginning Equity − Equity Floor))</div><br><div class="formula">Progressive tax (Low / Moderate / High): 0–200k, 200–500k, 500k–1m, >1m marginal brackets</div>
         </div>
         <div class="card"><h3><span class="badge warn">CALIBRATION REQUIRED</span></h3>
           <div class="risk"><span class="dot orange"></span><div><b>Demand function</b><p>Price × Marketing × R&D × competitor interaction still needs empirical calibration across environments.</p></div></div>
@@ -457,6 +457,22 @@ self.onmessage = async (ev) => {
     };
   };
 
+  // Verified against HAR glossary and Simulation 1 tax lines. Rates are marginal by bracket.
+  E.progressiveTax = (profitBeforeTax, level='Moderate', equipmentInvestment=0, investmentCredit=false) => {
+    const p=Math.max(0,Number(profitBeforeTax||0));
+    const rates={
+      Low:[0.18,0.28,0.38,0.44],
+      Moderate:[0.22,0.35,0.48,0.55],
+      High:[0.26,0.42,0.58,0.66]
+    }[level] || [0.22,0.35,0.48,0.55];
+    let tax=Math.min(p,200000)*rates[0]
+      + Math.min(Math.max(p-200000,0),300000)*rates[1]
+      + Math.min(Math.max(p-500000,0),500000)*rates[2]
+      + Math.max(p-1000000,0)*rates[3];
+    if(investmentCredit) tax=Math.max(0,tax-Number(equipmentInvestment||0)*0.035);
+    return tax;
+  };
+
   global.MBSEngine=E;
 })(window);
 </script><script>
@@ -635,35 +651,50 @@ function v02PredictDemand(decision,round=model.currentRound){
   return Math.max(0,z.reduce((a,v,j)=>a+v*fit.beta[j],0));
 }
 function v02CostCalibration(){
-  const d=v02Dataset(), op=d.operation||[], fin=d.finance||{};
-  const labor=[], mat=[], tax=[], fgh=[], rmh=[], admin=[];
-  let base=null;
-  for(const key of Object.keys(fin)){
-    const r=Number(key), f=fin[key], o=op[r];
-    if(!f||!o) continue;
-    const prod=Number(o.production?.production_realized||0);
-    const sales=Number(o.sales?.volume||0);
-    if(prod>0 && Number(f.income?.labor_cost)>0) labor.push(Number(f.income.labor_cost)/prod);
-    if(Number(f.income?.unit_cost_mat)>0) mat.push(Number(f.income.unit_cost_mat));
-    const pbt=Number(f.income?.net_profit_before_tax), tx=Number(f.income?.income_tax);
-    if(pbt>0 && tx>=0) tax.push(tx/pbt);
-    const fg=Number(o.production?.finished_goods_inventory||0), gh=Number(f.income?.goods_holding_cost||0);
-    if(fg>0 && gh>0) fgh.push(gh/fg);
-    const rm=Number(o.production?.raw_material_inventory_end||0), mh=Number(f.income?.mat_holding_cost||0);
-    if(rm>0 && mh>0) rmh.push(mh/rm);
-    if(Number(f.income?.admin_misc_expense)>=0) admin.push(Number(f.income.admin_misc_expense));
-    if(!base || r>base.r) base={r,f,o,sales};
+  const d=v02Dataset(), op=d.operation||[], fin=d.finance||{}, eco=d.economy||[];
+  const keys=Object.keys(fin).map(Number).filter(Number.isFinite).sort((a,b)=>a-b);
+  const preferred=Math.max(0,Number(model.currentRound||1)-1);
+  const usable=keys.filter(r=>r<=preferred);
+  const r=usable.length?Math.max(...usable):(keys.length?Math.max(...keys):0);
+  const f=fin[String(r)]||fin[r]||{}, o=op[r]||{};
+  const er=eco[r]||{}, currentPI=Number(model.currentPriceIndex||1);
+  const prevPI=Number(er.inflation_index||100)/100 || currentPI;
+  const inflationScale=currentPI/Math.max(prevPI,0.000001);
+
+  const realized=Math.max(1,Number(o.production?.production_realized||0));
+  const normalLabor=Number(f.income?.unit_labor_cost||0) > 0
+    ? Number(f.income.unit_labor_cost)*inflationScale
+    : (Number(f.income?.labor_cost||0)/realized)*inflationScale;
+  const materialUnit=Number(f.balance?.mat_unit_cost||f.income?.unit_cost_mat||1);
+
+  let taxLevel=model.environment.tax_rate||'Moderate';
+  if(!['Low','Moderate','High'].includes(taxLevel)) taxLevel='Moderate';
+
+  const fgRates=[], rmRates=[];
+  for(const rr of keys.filter(x=>x<=r)){
+    const ff=fin[String(rr)]||{}, oo=op[rr]||{};
+    const fg=Number(oo.production?.finished_goods_inventory||0);
+    const rm=Number(oo.production?.raw_material_inventory_end||0);
+    const gh=Number(ff.income?.goods_holding_cost||0);
+    const mh=Number(ff.income?.mat_holding_cost||0);
+    const epi=Number(eco[rr]?.inflation_index||100)/100 || prevPI;
+    if(fg>0 && gh>0) fgRates.push((gh/fg)*(currentPI/epi));
+    if(rm>0 && mh>0) rmRates.push((mh/rm)*(currentPI/epi));
   }
+
+  const adminMisc=Number(f.income?.admin_misc_expense||0)*inflationScale;
   return {
-    laborUnit:v02Median(labor)||1.5,
-    materialUnit:v02Median(mat)||1,
-    taxRate:v02Median(tax)||0.30,
-    fgHold:v02Median(fgh)||0,
-    rmHold:v02Median(rmh)||0,
-    adminMisc:v02Median(admin)||0,
-    baseSales:base?.sales||1,
-    baseRevenue:Number(base?.o?.financial?.revenue||1),
-    currentMatPrice:Number(base?.f?.cash_flow?.mat_price||1)
+    round:r,
+    laborUnit:normalLabor||1.5,
+    materialUnit:materialUnit||1,
+    taxLevel,
+    fgHold:v02Median(fgRates)||0,
+    rmHold:v02Median(rmRates)||0,
+    adminMisc,
+    baseSales:Number(o.sales?.volume||1),
+    baseRevenue:Number(o.financial?.revenue||1),
+    currentMatPrice:Number(f.cash_flow?.mat_price||1),
+    inflationScale
   };
 }
 function v02Forecast(decision){
@@ -686,7 +717,7 @@ function v02Forecast(decision){
   const equipmentFee=E.equipmentFee(decision.equipment);
   const revenue=sales*Number(decision.price||0);
   const activity=c.baseSales>0?sales/c.baseSales:1;
-  const adminMisc=c.adminMisc*(0.70+0.30*Math.max(0,activity));
+  const adminMisc=c.adminMisc*(0.90+0.10*Math.max(0,activity));
   const fgHold=endingFGI*c.fgHold;
   const rmHold=endingRM*c.rmHold;
   const normalInterest=Number(s.normalDebt||0)*(Number(model.environment.annual_interest_rate||0)/100/4);
@@ -699,7 +730,7 @@ function v02Forecast(decision){
   };
   const totalExpenses=Object.values(expenses).reduce((a,b)=>a+b,0);
   const pbt=revenue-totalExpenses;
-  const tax=Math.max(0,pbt*c.taxRate);
+  const tax=E.progressiveTax(pbt,c.taxLevel,decision.equipment,String(model.environment.tax_deduction_investment||'No')==='Yes');
   const netProfit=pbt-tax;
   const actualDividend=E.actualDividend(decision.dividend,s.equity,model.equityFloor);
   const endingEquity=Number(s.equity||0)+netProfit-actualDividend;
@@ -744,7 +775,7 @@ function v02Render(){
     return '<tr><td>'+n+'</td><td>'+E.num(b)+'</td><td><span class="badge '+(b>0?'ok':'warn')+'">'+sign+'</span></td></tr>';
   }).join(''):'<tr><td colspan="3">Import at least four historical rounds.</td></tr>');
   text('#costLaborUnit',E.money(c.laborUnit)); text('#costMaterialUnit',E.money(c.materialUnit));
-  text('#costTaxRate',(c.taxRate*100).toFixed(1)+'%'); text('#costFGHold',E.money(c.fgHold)); text('#costRMHold',E.money(c.rmHold));
+  text('#costTaxRate',c.taxLevel+' progressive'); text('#costFGHold',E.money(c.fgHold)); text('#costRMHold',E.money(c.rmHold));
   const pl=[
     ['Revenue',f.revenue],['Labor',-f.expenses.labor],['Raw material used',-f.expenses.material],
     ['Maintenance',-f.expenses.maintenance],['Depreciation',-f.expenses.depreciation],
@@ -892,7 +923,7 @@ function importHar(file){
         const f=x.finance[String(latest)], o=x.operation[Math.min(latest,x.operation.length-1)];
         model.initialEquity=x.finance["0"]?.balance?.equity || model.initialEquity;
         model.totalRounds=x.environment?.period || latest;
-        model.currentRound=Math.min(latest,model.totalRounds);
+        model.currentRound=Math.min(latest < model.totalRounds ? latest+1 : latest, model.totalRounds);
         model.state={
           cash:f.balance.cash,equity:f.balance.equity,rawMaterial:o.production.raw_material_inventory_end,
           finishedGoods:o.production.finished_goods_inventory,equipmentBV:f.balance.equipment_value,
@@ -906,8 +937,8 @@ function importHar(file){
           if(dv!=null) model.actualDividends.push(Number(dv));
         }
         if(x.economy){
-          const current=x.economy[Math.min(latest,x.economy.length-1)];
-          const next=x.economy[Math.min(latest+1,x.economy.length-1)];
+          const current=x.economy[Math.min(model.currentRound,x.economy.length-1)];
+          const next=x.economy[Math.min(model.currentRound+1,x.economy.length-1)];
           if(current?.inflation_index) model.currentPriceIndex=Number(current.inflation_index)/100;
           if(next?.inflation_index) model.nextPriceIndex=Number(next.inflation_index)/100;
         }
