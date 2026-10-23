@@ -2461,6 +2461,41 @@ function calculations(){
   return {fee,cap,bv,rc,actualDiv,ee,rmNeed,procurement,terminalEquip,npv,dividends};
 }
 
+/* v0.14 — TopBoss-compatible final-only Rankings visibility */
+function v14GameFinished(){
+  if(model.gameFinished===true) return true;
+  const data=model.imported;
+  if(!data?.finance) return false;
+  const rounds=Object.keys(data.finance).map(Number).filter(Number.isFinite);
+  if(!rounds.length) return false;
+  const latest=Math.max(...rounds);
+  const total=Number(data.environment?.period||model.totalRounds||0);
+  return total>0 && latest>=total;
+}
+function v14RenderRankings(){
+  const finished=v14GameFinished();
+  const navBtn=$('#navRankings');
+  if(navBtn) navBtn.style.display=finished?'block':'none';
+  if(!finished){
+    html('#rankBody','<tr><td colspan="6" class="muted">Rankings unlock after the final round is completed.</td></tr>');
+    text('#rankWinnerName','—');text('#rankWinnerNPV','—');text('#rankOurPosition','—');text('#rankOurName','—');text('#rankOurNPV','—');
+    return;
+  }
+  const data=v03Dataset();
+  const raw=(model.rank&&model.rank.length)?model.rank:(data.rank||[]);
+  const rank=[...raw].sort((a,b)=>Number(b.npv||0)-Number(a.npv||0));
+  const own=v03InferOwnCompany(data);
+  const winner=rank[0]||null;
+  const ownIdx=own?rank.findIndex(x=>x.company_name===own):-1;
+  const ours=ownIdx>=0?rank[ownIdx]:null;
+  text('#rankWinnerName',winner?.company_name||'—');
+  text('#rankWinnerNPV',winner?E.money(winner.npv):'—');
+  text('#rankOurPosition',ownIdx>=0?'#'+(ownIdx+1):'—');
+  text('#rankOurName',own||'—');
+  text('#rankOurNPV',ours?E.money(ours.npv):'—');
+  html('#rankBody',rank.length?rank.map((r,i)=>'<tr><td>#'+(i+1)+'</td><td>'+r.company_name+'</td><td>'+E.money(r.npv)+'</td><td>'+E.money(r.stockholder_equity)+'</td><td>'+E.money(r.total_dividend_issue)+'</td><td>'+E.num(r.avg_sales_volume)+'</td></tr>').join(''):'<tr><td colspan="6" class="muted">Final round is complete, but no ranking rows were captured. Import a HAR that includes the Rankings page.</td></tr>');
+}
+
 function render(){
   const c=calculations(),s=model.state,d=model.decision;
   text('#sourceLabel',model.source);
@@ -2504,8 +2539,7 @@ function render(){
 
   html('#riskList',risks.map(r=>`<div class="risk"><span class="dot ${r.level}"></span><div><b>${r.title}</b><p>${r.desc}</p></div></div>`).join(''));
 
-  const rank=model.rank||[];
-  html('#rankBody',rank.length?rank.slice(0,10).map((r,i)=>`<tr><td>#${i+1} ${r.company_name}</td><td>${E.money(r.npv)}</td><td>${E.money(r.stockholder_equity)}</td><td>${E.money(r.total_dividend_issue)}</td><td>${E.num(r.avg_sales_volume)}</td></tr>`).join(''):`<tr><td colspan="5" class="muted">Import a HAR to populate ranking.</td></tr>`);
+  v14RenderRankings();
 
   const env=model.environment;
   text('#envSummary',`${env.price_elasticity?.market_1||env.price_elasticity||'—'} elasticity • ${env.rd_influence||'—'} R&D • ${env.maintenance_influence||'—'} maintenance • ${env.inflation||'—'} inflation`);
@@ -2532,7 +2566,7 @@ $('#useSample').onclick=()=>{
     rawMaterialUnitCost:f.balance.mat_unit_cost||1,finishedGoodsUnitCost:f.balance.finished_goods_unit_cost||3,
     productQuality:0.2645133,productImage:0.6033333,marketShare:0,materialPurchasePrice:f.cash_flow.mat_price||1.15
   };
-  model.actualDividends=[]; model.rank=initialSample.rank||[];
+  model.actualDividends=[]; model.rank=[]; model.gameFinished=false;
   model.decision={price:6.4,production:425641,expectedDemand:438879,marketing:150000,rd:150000,procurement:500000,maintenance:75000,equipment:0,dividend:0,projectedEndingEquity:f.balance.equity};
   save(); hydrateForms(); nav('dashboard');
 };
@@ -2557,14 +2591,16 @@ function importHar(file){
     if(msg.type==='done'){
       const x=msg.data; model.imported=x; model.source=`HAR • ${file.name}`;
       if(x.environment) model.environment=x.environment;
-      if(x.rank) model.rank=x.rank;
+      model.rank=[]; model.gameFinished=false;
       if(x.finance && x.operation){
         const rounds=Object.keys(x.finance).map(Number).filter(Number.isFinite);
         const latest=Math.max(...rounds);
         const f=x.finance[String(latest)], o=x.operation[Math.min(latest,x.operation.length-1)];
         model.initialEquity=x.finance["0"]?.balance?.equity || model.initialEquity;
         model.totalRounds=x.environment?.period || latest;
-        model.currentRound=Math.min(latest < model.totalRounds ? latest+1 : latest, model.totalRounds);
+        model.gameFinished=latest>=Number(model.totalRounds);
+        model.currentRound=model.gameFinished?Number(model.totalRounds):Math.min(latest+1,Number(model.totalRounds));
+        model.rank=model.gameFinished&&Array.isArray(x.rank)?x.rank:[];
         model.state={
           cash:f.balance.cash,equity:f.balance.equity,rawMaterial:o.production.raw_material_inventory_end,
           finishedGoods:o.production.finished_goods_inventory,equipmentBV:f.balance.equipment_value,
@@ -2601,7 +2637,7 @@ function importHar(file){
       }
       save();hydrateForms();
       const learned=model.lastReconciliation && Number(model.lastReconciliation.round)===latest;
-      text('#harStatus',`Parsed ${x.entryCount} network entries. Environment, finance, operation and ranking loaded.`+(learned?' R'+latest+' forecast reconciled and corrections updated.':''));
+      text('#harStatus',`Parsed ${x.entryCount} network entries. Environment, finance and operation loaded.`+(model.gameFinished?' Final round complete; Rankings unlocked.':' Rankings remain hidden until all rounds are complete.')+(learned?' R'+latest+' forecast reconciled and corrections updated.':''));
       worker.terminate();
     }
   };
