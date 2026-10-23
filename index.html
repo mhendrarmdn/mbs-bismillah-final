@@ -1356,8 +1356,24 @@ function v03PredictBehavior(state,decision,round,models=v03BehaviorModels()){
     const relPrice=cs.price?(Number(decision.price||0)-cs.price)/cs.price:0;
     demand=models.demand.predict([relPrice,quality-cs.quality,image-cs.image,v03Macro(round),state.deferredDemand,Number(state.marketShare||0)]);
   } else if(hasComp) {
+    // Early-round prior: preserve the Simulation-1 absolute demand baseline, then apply
+    // directionally constrained competitor adjustments. The unconstrained 8-round
+    // competitor regression had unstable signs, so it is diagnostic only.
+    const baseDemand=v05PriorDemandPredict(state,decision,round);
     const relPrice=(Number(decision.price||0)-cs.price)/cs.price;
-    demand=priors.demand.predict([relPrice,quality-cs.quality,image-cs.image,v03Macro(round),state.deferredDemand,Number(state.marketShare||0)]);
+    const qGap=quality-cs.quality, iGap=image-cs.image;
+    const pe=String(model.environment.price_elasticity?.market_1||model.environment.price_elasticity||'Low');
+    const priceSens=pe==='High'?2.8:pe==='Medium'?2.2:1.6;
+    const rdInf=String(model.environment.rd_influence||'Low');
+    const qualitySens=rdInf==='High'?1.10:rdInf==='Medium'?0.82:0.58;
+    const imageSens=0.45;
+    const center=V13_COMPETITOR_PRIOR.demand.means;
+    const logAdj=
+      -priceSens*(relPrice-center[0])
+      +qualitySens*(qGap-center[1])
+      +imageSens*(iGap-center[2]);
+    const competitorFactor=Math.max(0.75,Math.min(1.30,Math.exp(logAdj)));
+    demand=baseDemand*competitorFactor;
   } else {
     demand=v05PriorDemandPredict(state,decision,round);
   }
