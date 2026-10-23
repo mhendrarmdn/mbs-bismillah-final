@@ -2261,7 +2261,9 @@ function v04EngineBacktest(){
   return rows;
 }
 function v04RenderBacktest(){
-  const data=v03Dataset(), ctx=v04OwnRankContext(), op=data.operation||[], fin=data.finance||{};
+  const data=v03Dataset(), allowFinalRank=model.appMode!=='competition'||v14GameFinished();
+  const ctx=allowFinalRank?v04OwnRankContext():{own:v03InferOwnCompany(data),ours:null,winner:null};
+  const op=data.operation||[], fin=data.finance||{};
   text('#btOurNPV',ctx.ours?E.money(ctx.ours.npv):'—');
   text('#btWinnerNPV',ctx.winner?E.money(ctx.winner.npv):'—');
   text('#btWinnerName',ctx.winner?ctx.winner.company_name:'—');
