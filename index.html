@@ -13,10 +13,10 @@
 *{box-sizing:border-box} body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;background:var(--bg);color:var(--text)}
 button,input,select{font:inherit}
 .app{min-height:100vh;display:grid;grid-template-columns:250px 1fr}
-.sidebar{background:linear-gradient(180deg,var(--navy),#051426);color:#fff;padding:24px 18px;position:sticky;top:0;height:100vh}
-.brand{display:flex;gap:12px;align-items:center;margin-bottom:28px}.logo{width:42px;height:42px;border-radius:12px;background:var(--gold);color:var(--navy);display:grid;place-items:center;font-weight:900}.brand h1{font-size:16px;margin:0}.brand small{display:block;color:#b8c6d8;margin-top:2px}
-.nav button{width:100%;border:0;background:transparent;color:#c5d2e2;text-align:left;padding:12px 14px;border-radius:10px;margin:3px 0;cursor:pointer}.nav button.active,.nav button:hover{background:#12365f;color:#fff}.nav .ico{display:inline-block;width:24px}
-.side-note{position:absolute;left:18px;right:18px;bottom:20px;padding:12px;border:1px solid #24476c;border-radius:12px;color:#adbed1;font-size:12px;line-height:1.5}
+.sidebar{background:linear-gradient(180deg,var(--navy),#051426);color:#fff;padding:24px 18px;position:sticky;top:0;height:100vh;height:100dvh;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.brand{display:flex;gap:12px;align-items:center;margin-bottom:28px;flex:0 0 auto}.logo{width:42px;height:42px;border-radius:12px;background:var(--gold);color:var(--navy);display:grid;place-items:center;font-weight:900}.brand h1{font-size:16px;margin:0}.brand small{display:block;color:#b8c6d8;margin-top:2px}
+.nav{flex:1 1 auto;min-height:0;overflow-y:auto;overflow-x:hidden;padding-right:4px;scrollbar-gutter:stable}.nav button{width:100%;border:0;background:transparent;color:#c5d2e2;text-align:left;padding:12px 14px;border-radius:10px;margin:3px 0;cursor:pointer}.nav button.active,.nav button:hover{background:#12365f;color:#fff}.nav .ico{display:inline-block;width:24px}.nav::-webkit-scrollbar{width:7px}.nav::-webkit-scrollbar-track{background:transparent}.nav::-webkit-scrollbar-thumb{background:#24476c;border-radius:999px}.nav{scrollbar-width:thin;scrollbar-color:#24476c transparent}
+.side-note{position:static;left:auto;right:auto;bottom:auto;margin-top:16px;flex:0 0 auto;padding:12px;border:1px solid #24476c;border-radius:12px;color:#adbed1;font-size:12px;line-height:1.5;background:rgba(5,20,38,.96)}
 .main{padding:28px;max-width:1500px;width:100%}.topbar{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;margin-bottom:22px}.topbar h2{margin:0;font-size:27px}.topbar p{margin:5px 0 0;color:var(--muted)}
 .actions{display:flex;gap:9px;flex-wrap:wrap}.btn{border:1px solid var(--line);background:white;padding:10px 14px;border-radius:10px;cursor:pointer;font-weight:650}.btn.primary{background:var(--navy);color:white;border-color:var(--navy)}.btn.gold{background:var(--gold);color:var(--navy);border-color:#dfb329}.btn.danger{color:var(--red)}
 .grid{display:grid;gap:16px}.g4{grid-template-columns:repeat(4,minmax(0,1fr))}.g3{grid-template-columns:repeat(3,minmax(0,1fr))}.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -49,7 +49,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
   #printSheet .print-kpi b{display:block;font-size:14px;margin-top:3px}
   #printSheet .print-note{font-size:11px;line-height:1.4;margin-top:10px}
 }
-@media(max-width:1100px){.app{grid-template-columns:1fr}.sidebar{height:auto;position:relative}.nav{display:flex;overflow:auto}.nav button{min-width:150px}.side-note{display:none}.g4{grid-template-columns:repeat(2,1fr)}.form-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:1100px){.app{grid-template-columns:1fr}.sidebar{height:auto;min-height:auto;position:relative;overflow:visible}.nav{display:flex;flex:0 0 auto;min-height:auto;overflow-x:auto;overflow-y:hidden;padding-right:0;scrollbar-gutter:auto}.nav button{min-width:150px}.side-note{display:none}.g4{grid-template-columns:repeat(2,1fr)}.form-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:680px){.main{padding:16px}.g4,.g3,.g2,.form-grid{grid-template-columns:1fr}.topbar{display:block}.actions{margin-top:12px}}
 </style>
 </head>
