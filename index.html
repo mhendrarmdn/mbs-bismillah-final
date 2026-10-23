@@ -66,6 +66,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
       <button data-target="scenarios"><span class="ico">◇</span> Scenario Lab</button>
       <button data-target="rolling"><span class="ico">↻</span> Rolling Optimizer</button>
       <button data-target="sensitivity"><span class="ico">▦</span> Sensitivity Lab</button>
+      <button id="navRankings" data-target="rankings" style="display:none"><span class="ico">♛</span> Rankings</button>
       <button data-target="backtest"><span class="ico">≋</span> Backtest & Confidence</button>
       <button data-target="audit"><span class="ico">✓</span> Formula Audit</button>
       <button data-target="import"><span class="ico">⇩</span> HAR Import</button>
@@ -187,10 +188,22 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
         </div>
         <div class="card"><h3>Decision risk checks</h3><div id="riskList"></div></div>
       </div>
+    </section>
+
+    <section id="rankings" class="section">
+      <div class="callout gold"><b>Final standings only.</b> TopBoss exposes Rankings after the game has completed all rounds. This replica follows the same rule: the sidebar menu stays hidden until the final round result has been calculated.</div>
+      <div class="spacer"></div>
+      <div class="grid g4">
+        <div class="card metric"><div class="label">Winner</div><div class="value" id="rankWinnerName" style="font-size:18px">—</div><div class="foot">Final NPV leader</div></div>
+        <div class="card metric"><div class="label">Winner NPV</div><div class="value" id="rankWinnerNPV">—</div><div class="foot">Final ranking</div></div>
+        <div class="card metric"><div class="label">Our rank</div><div class="value" id="rankOurPosition">—</div><div class="foot" id="rankOurName">—</div></div>
+        <div class="card metric"><div class="label">Our NPV</div><div class="value" id="rankOurNPV">—</div><div class="foot">Final ranking</div></div>
+      </div>
       <div class="spacer"></div>
       <div class="card">
-        <div class="title-row"><h3>Ranking snapshot</h3><span class="badge ok">HAR import supported</span></div>
-        <div class="scroll"><table><thead><tr><th>Team</th><th>NPV</th><th>Equity</th><th>Total dividend</th><th>Avg sales</th></tr></thead><tbody id="rankBody"></tbody></table></div>
+        <div class="title-row"><h3>Final NPV Rankings</h3><span class="badge ok">Game completed</span></div>
+        <div class="spacer"></div>
+        <div class="scroll"><table><thead><tr><th>#</th><th>Team</th><th>NPV</th><th>Equity</th><th>Total dividend</th><th>Avg sales</th></tr></thead><tbody id="rankBody"></tbody></table></div>
       </div>
     </section>
 
@@ -850,7 +863,8 @@ let model={
   lastReconciliation:null,
   roundJournal:[],
   competitorScenario:'hold',
-  scenarioWeights:{hold:0.25,pricewar:0.25,stronger:0.25,adverse:0.25}
+  scenarioWeights:{hold:0.25,pricewar:0.25,stronger:0.25,adverse:0.25},
+  gameFinished:false
 };
 
 function save(){localStorage.setItem('mbsEngineMVP',JSON.stringify(model));}
@@ -873,6 +887,7 @@ function nav(id){
     scenarios:['Scenario Lab','Stress-test alternative decision packages'],
     rolling:['Rolling Optimizer','Beam-search decisions from the active round through the terminal round'],
     sensitivity:['Sensitivity Lab','Test whether the recommended first decision is robust or overfit'],
+    rankings:['Rankings','Final NPV standings • available only after all rounds are complete'],
     backtest:['Backtest & Confidence','Historical strategy audit and uncertainty stress test'],
     audit:['Formula Audit','Verified formulas, assumptions, and remaining calibration gaps'],
     import:['HAR Import','Read TopBoss data directly from a browser HAR capture']
