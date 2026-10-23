@@ -1,4 +1,4 @@
-# MBS Decision & NPV Engine — v0.3
+# MBS Decision & NPV Engine — v0.4
 
 A local-first decision workspace for the 2026 MBS E-Case Competition.
 
@@ -34,6 +34,12 @@ A local-first decision workspace for the 2026 MBS E-Case Competition.
 - Competitor-aware demand model using relative price, quality, image, macro conditions, prior unmet demand, and prior market share
 - Product-quality, product-image, and conversion-factor response models
 - Automatic state transitions for cash, debt/overdraft, raw materials, FGI, equipment BV, capacity, replacement cost and equity
+- Backtest & Confidence dashboard
+- Historical strategy audit by round
+- Live forecast-engine error backtest against completed HAR rounds
+- Monte Carlo-style uncertainty stress test for the best rolling path
+- NPV P10 / median / P90 and overdraft probability
+- Automatic explanation of why the optimizer prefers its first decision
 - Deferred unmet-demand feature (50% carryover) in the empirical demand model
 - Verified single-shift management-expense and miscellaneous-expense formulas
 - One-click application of scenario packages back to the Decision Lab
@@ -66,7 +72,7 @@ The app separates three classes of logic:
 - **Unknown / forecast**: never silently treated as exact.
 
 ## Validation
-See `MODEL_VALIDATION.md`. The accounting/operations transition has been backtested against Simulation 1 R2-R8 and reproduces ending cash/equity/PBT within very small rounding differences.
+See `MODEL_VALIDATION.md`. Verified accounting mechanics are separated from calibrated forecast relationships. v0.4 computes historical forecast error in the app rather than claiming a universal accuracy figure.
 
 ## Next build target
-v0.4: live-round backtest/audit mode, scenario uncertainty bands, stronger raw-material price forecasting, and automatic strategy explanation (“why this decision beats the alternatives”).
+v0.5: stronger labor/raw-material price forecasting, walk-forward calibration without retrospective leakage, and an optional competition mode that freezes only information available at each live round.
