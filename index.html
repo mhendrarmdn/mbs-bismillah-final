@@ -318,7 +318,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
 
     <section id="audit" class="section">
       <div class="grid g2">
-        <div class="card"><h3><span class="badge ok">VERIFIED FROM HAR</span></h3>
+        <div class="card"><h3><span class="badge ok">VERIFIED FROM HAR</span></h3><div class="callout"><b>State-transition validation:</b> Backtest R2–R8 reproduces cash within ~$302 max error, ending equity within ~$373, and pre-tax profit within ~$631. R1 is excluded because the opening-state inventory treatment is special.</div><div class="spacer"></div>
           <p class="small">These reproduce observed Simulation 1 values.</p>
           <div class="formula">Equipment fee = Investment² / 10,000,000</div><br>
           <div class="formula">BVₜ = BVₜ₋₁ − floor(2.5% × BVₜ₋₁) + Investmentₜ</div><br>
@@ -865,7 +865,10 @@ function v03InferOwnCompany(data=v03Dataset()){
   return Object.entries(votes).sort((a,b)=>b[1]-a[1])[0]?.[0]||null;
 }
 function v03CompStats(data,round,ownName){
-  let rows=v03RoundRows(data,round);
+  // Future competitor decisions are unknown: freeze market position at the latest observable round.
+  const latestObservable=Math.max(0,Number(model.currentRound||1)-1);
+  const requested=Number(round)>latestObservable?latestObservable:Number(round);
+  let rows=v03RoundRows(data,requested);
   if(!rows.length){
     const n=v03North(data);
     if(n){
