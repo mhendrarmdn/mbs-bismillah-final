@@ -34,6 +34,21 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
 .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.muted{color:var(--muted)}.small{font-size:11px}.title-row{display:flex;justify-content:space-between;align-items:center;gap:10px}.spacer{height:16px}
 .kpi-strip{display:flex;gap:10px;flex-wrap:wrap}.pill{padding:8px 10px;background:#f3f6fa;border-radius:9px;font-size:11px}.pill b{display:block;font-size:14px;margin-top:3px}
 .heatcell{min-width:92px;text-align:center!important;font-weight:750;border-radius:6px}.heat-0{background:#eef2f7}.heat-1{background:#d9e5f2}.heat-2{background:#b6cee7}.heat-3{background:#7ea7d0}.heat-4{background:#3f76ad;color:#fff}.heat-5{background:#123f73;color:#fff}.smallbtn{padding:6px 9px;font-size:11px}
+.print-only{display:none}
+@media print{
+  body{background:#fff!important}
+  .app>.sidebar,.main>.topbar,.main>.section{display:none!important}
+  .main{padding:0!important;max-width:none!important}
+  #printSheet.print-only{display:block!important;font-family:Arial,sans-serif;color:#000;padding:18mm}
+  #printSheet h1{font-size:22px;margin:0 0 4px}
+  #printSheet h2{font-size:15px;margin:18px 0 8px;border-bottom:1px solid #bbb;padding-bottom:4px}
+  #printSheet table{width:100%;border-collapse:collapse;font-size:12px}
+  #printSheet th,#printSheet td{border:1px solid #bbb;padding:7px;text-align:left}
+  #printSheet .print-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:10px 0}
+  #printSheet .print-kpi{border:1px solid #bbb;padding:8px}
+  #printSheet .print-kpi b{display:block;font-size:14px;margin-top:3px}
+  #printSheet .print-note{font-size:11px;line-height:1.4;margin-top:10px}
+}
 @media(max-width:1100px){.app{grid-template-columns:1fr}.sidebar{height:auto;position:relative}.nav{display:flex;overflow:auto}.nav button{min-width:150px}.side-note{display:none}.g4{grid-template-columns:repeat(2,1fr)}.form-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:680px){.main{padding:16px}.g4,.g3,.g2,.form-grid{grid-template-columns:1fr}.topbar{display:block}.actions{margin-top:12px}}
 </style>
@@ -72,6 +87,8 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
         <button id="compApplyRobust" class="btn primary">Apply robust leader</button>
         <button id="compCopy" class="btn primary">Lock + Copy 8 decisions</button>
         <button id="compExport" class="btn">Export competition pack</button>
+        <button id="printDecisionSheet" class="btn">Print decision sheet</button>
+        <button id="printRoundBrief" class="btn">Print post-round brief</button>
       </div>
       <div class="spacer"></div>
 
@@ -125,6 +142,13 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
             <div class="field"><label>Stronger rivals</label><input id="weightStronger" type="number" min="0" step="0.05"></div>
             <div class="field"><label>Adverse mix</label><input id="weightAdverse" type="number" min="0" step="0.05"></div>
           </div>
+          <div class="spacer"></div>
+          <div class="actions">
+            <button class="btn smallbtn" data-weight-preset="balanced">Balanced</button>
+            <button class="btn smallbtn" data-weight-preset="base">Base-heavy</button>
+            <button class="btn smallbtn" data-weight-preset="defensive">Defensive</button>
+            <button class="btn smallbtn" data-weight-preset="pricewar">Price-war</button>
+          </div>
           <div class="spacer"></div><div id="compWeightSummary" class="small muted">Equal weights by default.</div>
         </div>
         <div class="card">
@@ -139,6 +163,8 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
         </div>
       </div>
     </section>
+
+    <div id="printSheet" class="print-only"></div>
 
     <section id="dashboard" class="section active">
       <div class="callout gold"><b>Purpose:</b> maximize NPV without hard-coding the old simulation state. Verified mechanics are calculated exactly; unknown demand/behavioral functions stay visible as calibration gaps instead of being fabricated.</div>
