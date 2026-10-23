@@ -325,7 +325,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
           <div class="formula">Next Capacity = floor(Capacity × 0.975) + floor(Investment / (20 × Current Price Index))</div><br>
           <div class="formula">Replacement Cost = Next Capacity × 20 × Next Price Index</div><br>
           <div class="formula">Economic Equity = Owner's Equity − Equipment BV + Replacement Cost</div><br>
-          <div class="formula">Actual Dividend = min(Proposed, max(0, Beginning Equity − Equity Floor))</div><br><div class="formula">Progressive tax (Low / Moderate / High): 0–200k, 200–500k, 500k–1m, >1m marginal brackets</div><br><div class="formula">Management Expense = (150,000 + 0.32 × Capacity [+ 50,000 if overtime]) × Price Index</div><br><div class="formula">Misc Expense = (10,000 + 0.18 × Capacity) × Price Index</div>
+          <div class="formula">Actual Dividend = min(Proposed, max(0, Beginning Equity − Equity Floor))</div><br><div class="formula">Progressive tax (Low / Moderate / High): 0–200k, 200–500k, 500k–1m, >1m marginal brackets</div><br><div class="formula">Management Expense = (150,000 + 0.32 × Capacity [+ 50,000 if overtime]) × Price Index</div><br><div class="formula">Misc Expense = (10,000 + 0.18 × Capacity) × Price Index</div><br><div class="formula">Inventory COGS adjustment = Beginning FGI value − Ending FGI value</div><br><div class="formula">Ending FGI unit value = 3 × Current Price Index; FG holding cost = Ending FGI value / 6</div><br><div class="formula">RM holding cost = 5% × Beginning RM inventory value</div>
         </div>
         <div class="card"><h3><span class="badge warn">CALIBRATION REQUIRED</span></h3>
           <div class="risk"><span class="dot orange"></span><div><b>Demand function</b><p>Price × Marketing × R&D × competitor interaction still needs empirical calibration across environments.</p></div></div>
@@ -1004,9 +1004,12 @@ function v03Transition(state,decision,round,models=v03BehaviorModels()){
   const endRMUnit=endRM>0?endRMValue/endRM:Number(state.rawMaterialUnitCost||1);
   let endFGUnit=3*pi, endFGValue=0;
   if(endFG>0){
-    endFGUnit=(Number(state.finishedGoodsUnitCost||3)*Math.max(0,Number(state.finishedGoods||0)-sales)+3*production*pi)/endFG;
+    // Verified against R2-R4 balance values: ending standard FGI unit value = 3 × current price index.
+    endFGUnit=3*pi;
     endFGValue=endFG*endFGUnit;
   }
+  const beginFGValue=Number(state.finishedGoods||0)*Number(state.finishedGoodsUnitCost||3);
+  const inventoryCgsAdjustment=beginFGValue-endFGValue;
   const revenue=sales*Number(decision.price||0);
   const labor=v03LaborCost(production,Number(state.capacity||0),Number(state.laborUnit||1.5));
   const material=rmUsed*Number(state.rawMaterialUnitCost||1);
@@ -1018,7 +1021,7 @@ function v03Transition(state,decision,round,models=v03BehaviorModels()){
   const fgHold=endFGValue/6;
   const rmHold=0.05*Number(state.rawMaterial||0)*Number(state.rawMaterialUnitCost||1);
   const interest=normalDebt*(Number(model.environment.annual_interest_rate||0)/100)/4;
-  const pbt=revenue-labor-material-Number(decision.maintenance||0)-depreciation-ordering-equipmentFee-Number(decision.marketing||0)-Number(decision.rd||0)-management-misc-fgHold-rmHold-interest;
+  const pbt=revenue-labor-material-inventoryCgsAdjustment-Number(decision.maintenance||0)-depreciation-ordering-equipmentFee-Number(decision.marketing||0)-Number(decision.rd||0)-management-misc-fgHold-rmHold-interest;
   const tax=E.progressiveTax(pbt,model.environment.tax_rate||'Moderate',decision.equipment,String(model.environment.tax_deduction_investment||'No')==='Yes');
   const netProfit=pbt-tax;
   const actualDividend=E.actualDividend(decision.dividend,state.equity,model.equityFloor);
@@ -1047,7 +1050,7 @@ function v03Transition(state,decision,round,models=v03BehaviorModels()){
     dividends:[...(state.dividends||[]),actualDividend],maxOverdraft:Math.max(Number(state.maxOverdraft||0),abnormalDebt),
     path:[...(state.path||[]),{round,decision:{...decision},demand:behavior.demand,production,sales,netProfit,cashEnd,equity,abnormalDebt,conversion:behavior.conversion,quality:behavior.quality,image:behavior.image}]
   };
-  return {state:next,metrics:{revenue,pbt,tax,netProfit,sales,demand:behavior.demand,production,actualDividend,cashEnd,equity,abnormalDebt,endFG,endRM}};
+  return {state:next,metrics:{revenue,pbt,tax,netProfit,sales,demand:behavior.demand,production,actualDividend,cashEnd,equity,abnormalDebt,endFG,endRM,inventoryCgsAdjustment,beginFGValue,endFGValue}};
 }
 function v03SmartProcurement(state,behavior,production,round){
   if(round>=Number(model.totalRounds)) return 0;
