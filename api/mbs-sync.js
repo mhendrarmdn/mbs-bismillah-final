@@ -10,10 +10,14 @@ function attr(tag,name){
   const m=String(tag).match(re);
   return m?htmlDecode(m[1]??m[2]??m[3]??''):null;
 }
+function splitSetCookieHeader(value=''){
+  const raw=String(value||'');
+  if(!raw) return [];
+  return raw.split(/,(?=\s*[^;,=\s]+=[^;,]*)/g).map(v=>v.trim()).filter(Boolean);
+}
 function getSetCookies(headers){
   if(typeof headers.getSetCookie==='function') return headers.getSetCookie();
-  const v=headers.get('set-cookie');
-  return v?[v]:[];
+  return splitSetCookieHeader(headers.get('set-cookie'));
 }
 function mergeCookies(jar,setCookies){
   for(const line of setCookies||[]){
@@ -247,9 +251,15 @@ module.exports = async function handler(req,res){
         'referer':effectiveLoginUrl,
         'cache-control':'no-cache',
         'pragma':'no-cache',
-        'x-requested-with':'XMLHttpRequest'
+        'x-requested-with':'XMLHttpRequest',
+        'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/155 Safari/537.36',
+        'accept-language':'en-US,en;q=0.9'
       };
       if(form.csrf) headers['x-csrf-token']=form.csrf;
+      const xsrf=jar.get('XSRF-TOKEN')||jar.get('XSRF_TOKEN');
+      if(xsrf && !headers['x-xsrf-token']){
+        try{ headers['x-xsrf-token']=decodeURIComponent(xsrf); }catch(_){ headers['x-xsrf-token']=xsrf; }
+      }
       let actionUrl=loginAction,body;
       if(format==='json'){
         headers['content-type']='application/json';
@@ -263,22 +273,70 @@ module.exports = async function handler(req,res){
           body=undefined;
         }
       }
+
       const lr=await fetchJar(actionUrl,{method,headers,body:method==='GET'?undefined:body},jar);
       lastLoginStatus=lr.status; lastFormat=format;
-      try{await lr.text();}catch(_){}
+      let loginText='';
+      try{loginText=await lr.text();}catch(_){}
 
-      const probe=await fetchJar(new URL('/index',BASE).toString(),{
-        headers:{'accept':'text/html,application/xhtml+xml','cache-control':'no-cache','pragma':'no-cache','referer':effectiveLoginUrl}
-      },jar);
-      const text=await probe.text();
-      const user=rawAfter(text,'user: ');
-      if(probe.ok && user?.company_name){
-        indexHtml=text;
+      const loginUser=rawAfter(loginText,'user: ');
+      if(lr.ok && loginUser?.company_name){
+        indexHtml=loginText;
         return true;
+      }
+
+      const probes=[];
+      const addProbe=value=>{
+        if(!value) return;
+        try{
+          const u=new URL(value,effectiveLoginUrl);
+          if(u.origin===new URL(BASE).origin && !probes.includes(u.toString())) probes.push(u.toString());
+        }catch(_){}
+      };
+
+      if(lr.url){
+        try{
+          const p=new URL(lr.url).pathname;
+          if(/^\/(?:home|index)(?:\/|$)/i.test(p)) addProbe(lr.url);
+        }catch(_){}
+      }
+
+      try{
+        const json=JSON.parse(loginText);
+        for(const key of ['redirect','redirect_url','url','location','next','home']){
+          if(typeof json?.[key]==='string') addProbe(json[key]);
+          if(typeof json?.data?.[key]==='string') addProbe(json.data[key]);
+        }
+      }catch(_){}
+
+      if(process.env.MBS_HOME_URL) addProbe(process.env.MBS_HOME_URL);
+      const arena=process.env.MBS_ARENA
+        || String(new URL(effectiveLoginUrl).pathname.match(/^\/login\/([^/?#]+)/i)?.[1]||'').trim();
+      if(arena) addProbe('/home/'+encodeURIComponent(arena));
+      addProbe('/index');
+
+      for(const probeUrl of probes){
+        const probe=await fetchJar(probeUrl,{
+          headers:{
+            'accept':'text/html,application/xhtml+xml',
+            'cache-control':'no-cache',
+            'pragma':'no-cache',
+            'referer':effectiveLoginUrl,
+            'user-agent':headers['user-agent'],
+            'accept-language':headers['accept-language']
+          }
+        },jar);
+        const text=await probe.text();
+        const user=rawAfter(text,'user: ');
+        const loginLike=/<input[^>]+type=["']?password/i.test(text) && !/href=["']\/logout/i.test(text);
+        const signedInMarker=/href=["']\/logout/i.test(text)||/Sign out/i.test(text);
+        if(probe.ok && (user?.company_name || (!loginLike && signedInMarker))){
+          indexHtml=text;
+          return true;
+        }
       }
       return false;
     }
-
     const formats=form.mode==='js'?['json','form']:['form','json'];
     let authenticated=false;
     for(const format of formats){
