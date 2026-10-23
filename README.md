@@ -29,6 +29,9 @@ A local-first decision workspace for the 2026 MBS E-Case Competition.
 - Verified progressive marginal tax engine for Low / Moderate / High environments
 - Rolling labor/material/admin cost calibration from the most recent completed round and inflation index
 - Conservative / Base / Aggressive scenario comparison
+- Final-round candidate search (forecast-based; terminal round only)
+- Deferred unmet-demand feature (50% carryover) in the empirical demand model
+- Verified single-shift management-expense and miscellaneous-expense formulas
 - One-click application of scenario packages back to the Decision Lab
 
 ## Intentionally NOT claimed yet
@@ -59,4 +62,4 @@ The app separates three classes of logic:
 - **Unknown / forecast**: never silently treated as exact.
 
 ## Next build target
-v0.3: maintenance-response calibration, full cash-flow / debt reconciliation, competitor-aware demand features, rolling multi-round NPV projection, and candidate-decision optimization.
+v0.3: maintenance-response calibration, full cash-flow / debt reconciliation, competitor-aware demand features, and rolling multi-round NPV projection for R1–R3. Final-round candidate search is already available.
