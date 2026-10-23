@@ -1143,7 +1143,7 @@ function v03PredictBehavior(state,decision,round,models=v03BehaviorModels()){
     demand=v05PriorDemandPredict(state,decision,round);
   }
   demand=Math.max(0,Math.min(1500000,demand));
-  return {quality,image,conversion,demand,competitor:cs};
+  return v07ApplyCalibration({quality,image,conversion,demand,competitor:cs},models);
 }
 function v03LaborCost(prod,cap,unit){
   const n=Math.min(prod,cap), ot=Math.max(0,prod-cap);
@@ -1167,7 +1167,7 @@ function v03Transition(state,decision,round,models=v03BehaviorModels(),shock=nul
   const rmUsed=behavior.conversion>0?production/behavior.conversion:0;
   const rmBeforePurchase=Math.max(0,Number(state.rawMaterial||0)-rmUsed);
   const procurement=Math.max(0,Number(decision.procurement||0));
-  const purchasePrice=Math.max(0.01,Number(state.materialPurchasePrice||1));
+  const purchasePrice=Math.max(0.01,Number(state.materialPurchasePrice||v07ForecastRMPrice(round)))*(shock?.rawPriceMult||1);
   const endRM=rmBeforePurchase+procurement;
   const endRMValue=rmBeforePurchase*Number(state.rawMaterialUnitCost||1)+procurement*purchasePrice;
   const endRMUnit=endRM>0?endRMValue/endRM:Number(state.rawMaterialUnitCost||1);
@@ -1206,9 +1206,11 @@ function v03Transition(state,decision,round,models=v03BehaviorModels(),shock=nul
   const equity=assets-normalDebt-abnormalDebt;
   const compTotal=behavior.competitor.totalVolume;
   const marketShare=(sales+compTotal)>0?sales/(sales+compTotal)*100:Number(state.marketShare||0);
-  let nextPurchasePrice=purchasePrice*(nextPI/Math.max(pi,0.0001));
-  const data=v03Dataset(), known=data.finance?.[String(round)]?.cash_flow?.mat_price;
-  if(known!=null) nextPurchasePrice=Number(known);
+  let nextPurchasePrice=v07ForecastRMPrice(round+1);
+  if(model.appMode==='practice'){
+    const known=v03Dataset().finance?.[String(round)]?.cash_flow?.mat_price;
+    if(known!=null) nextPurchasePrice=Number(known);
+  }
   const nextLaborUnit=v05LaborUnit(round+1,Math.max(0,Number(model.currentRound||1)-1));
   const next={
     round:round+1,cash:cashEnd,equity,rawMaterial:endRM,rawMaterialUnitCost:endRMUnit,
@@ -1446,12 +1448,13 @@ function v06SubmissionText(){
   ].join('\n');
 }
 async function v06CopySubmission(){
+  v07LockSnapshot(true);
   const t=v06SubmissionText();
   try{await navigator.clipboard.writeText(t);alert('Eight decisions copied to clipboard.');}
   catch(_){prompt('Copy these decisions:',t);}
 }
 function v06DownloadDecision(){
-  const payload={round:model.currentRound,totalRounds:model.totalRounds,mode:model.appMode,environment:model.environment,state:model.state,decision:model.decision,generatedAt:new Date().toISOString()};
+  const payload={round:model.currentRound,totalRounds:model.totalRounds,mode:model.appMode,environment:model.environment,state:model.state,decision:model.decision,calibration:model.calibration,lastReconciliation:model.lastReconciliation,generatedAt:new Date().toISOString()};
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='mbs-round-'+model.currentRound+'-decision.json';a.click();URL.revokeObjectURL(a.href);
 }
@@ -1562,6 +1565,7 @@ function v04StressBestPath(n=300){
   const convSigma=Math.max(0.001,Number(models.conversion?.residualSd||models.conversion?.mae*1.25||0.008));
   const qualitySigma=Math.max(0,Number(models.quality?.residualSd||0));
   const imageSigma=Math.max(0,Number(models.image?.residualSd||0));
+  const rawPriceSigma=Math.max(0.01,Math.min(0.35,Number(v07RMFit()?.residualSd||0.10)));
   const npvs=[]; let od=0, positive=0;
   for(let k=0;k<n;k++){
     let st=v03BaseState(), anyOD=false;
@@ -1570,7 +1574,8 @@ function v04StressBestPath(n=300){
         demandDelta:v04Randn()*demandSigma,
         conversionDelta:v04Randn()*convSigma,
         qualityDelta:v04Randn()*qualitySigma*0.35,
-        imageDelta:v04Randn()*imageSigma*0.35
+        imageDelta:v04Randn()*imageSigma*0.35,
+        rawPriceMult:Math.exp(v04Randn()*rawPriceSigma)
       };
       const tr=v03Transition(st,step.decision,step.round,models,shock);
       st=tr.state; if(Number(st.abnormalDebt||0)>0) anyOD=true;
@@ -1578,14 +1583,14 @@ function v04StressBestPath(n=300){
     const term=v03TerminalValue(st), v=term.npv.value;
     npvs.push(v); if(anyOD)od++; if(v>0)positive++;
   }
-  return {n,npvs,p10:v04Percentile(npvs,.10),p50:v04Percentile(npvs,.50),p90:v04Percentile(npvs,.90),odProb:od/n,positiveProb:positive/n,demandSigma,convSigma};
+  return {n,npvs,p10:v04Percentile(npvs,.10),p50:v04Percentile(npvs,.50),p90:v04Percentile(npvs,.90),odProb:od/n,positiveProb:positive/n,demandSigma,convSigma,rawPriceSigma};
 }
 function v04RenderStress(x){
   if(!x){html('#stressStatus','<b>No rolling path available.</b> Run Rolling Optimizer first.');return;}
   html('#stressStatus','Ran <b>'+x.n+'</b> simulations around the fixed best path. Demand and conversion shocks use historical residual dispersion; this is a model-risk band, not a statistical guarantee.');
   text('#stressP10',E.money(x.p10));text('#stressP50',E.money(x.p50));text('#stressP90',E.money(x.p90));
   text('#stressODProb',(x.odProb*100).toFixed(1)+'%');text('#stressPositive',(x.positiveProb*100).toFixed(1)+'%');
-  text('#stressDemandSigma',E.num(x.demandSigma));text('#stressConvSigma',Number(x.convSigma).toFixed(4));
+  text('#stressDemandSigma',E.num(x.demandSigma));text('#stressConvSigma',Number(x.convSigma).toFixed(4));text('#stressRMSigma',(Number(x.rawPriceSigma||0)*100).toFixed(1)+'% log σ');
 }
 function v04ExplainFirstDecision(res){
   if(!res?.best?.path?.length){html('#decisionExplanation','Run Rolling Optimizer to generate an explanation.');return;}
