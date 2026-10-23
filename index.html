@@ -45,6 +45,8 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
       <button class="active" data-target="dashboard"><span class="ico">◫</span> Control Center</button>
       <button data-target="setup"><span class="ico">⚙</span> Game Setup</button>
       <button data-target="decision"><span class="ico">◎</span> Decision Lab</button>
+      <button data-target="calibration"><span class="ico">∿</span> Calibration & Forecast</button>
+      <button data-target="scenarios"><span class="ico">◇</span> Scenario Lab</button>
       <button data-target="audit"><span class="ico">✓</span> Formula Audit</button>
       <button data-target="import"><span class="ico">⇩</span> HAR Import</button>
     </div>
@@ -161,6 +163,87 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
           <div class="spacer"></div><button id="addActualDividend" class="btn">Store this round's actual dividend</button>
           <div class="spacer"></div><div id="historySummary" class="small muted"></div>
         </div>
+      </div>
+    </section>
+
+
+    <!-- MBS_V02_DEMAND_CALIBRATION -->
+    <section id="calibration" class="section">
+      <div class="grid g2">
+        <div class="card">
+          <div class="title-row"><h3>Empirical Demand Calibration</h3><span class="badge warn">CALIBRATED</span></div>
+          <p class="small muted">Ridge regression is fitted only to the imported/sample game's own historical rounds. It is not treated as a universal TopBoss formula.</p>
+          <div class="grid g2">
+            <div class="pill">Historical rounds used<b id="calN">—</b></div>
+            <div class="pill">In-sample R²<b id="calR2">—</b></div>
+            <div class="pill">Mean absolute error<b id="calMAE">—</b></div>
+            <div class="pill">Predicted demand now<b id="calDemand">—</b></div>
+          </div>
+          <div class="spacer"></div>
+          <div class="scroll"><table>
+            <thead><tr><th>Standardized feature</th><th>Demand effect / 1 SD</th><th>Interpretation</th></tr></thead>
+            <tbody id="calCoefBody"></tbody>
+          </table></div>
+          <div class="spacer"></div>
+          <div class="actions">
+            <button id="applyPredictedDemand" class="btn primary">Use predicted demand in Decision Lab</button>
+            <button id="recalibrateDemand" class="btn">Re-fit model</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="title-row"><h3>Forecast Assumptions</h3><span class="badge info">TRANSPARENT</span></div>
+          <div class="risk"><span class="dot green"></span><div><b>Structural mechanics</b><p>Capacity, equipment BV, replacement cost, equipment fee, economic equity, NPV and observed dividend cap use verified formulas.</p></div></div>
+          <div class="risk"><span class="dot orange"></span><div><b>Demand</b><p>Estimated from price, log marketing, log R&D and a macro index using the current HAR history.</p></div></div>
+          <div class="risk"><span class="dot orange"></span><div><b>Operating costs</b><p>Labor, material, tax, holding-cost and admin/misc assumptions are calibrated from historical financial statements.</p></div></div>
+          <div class="risk"><span class="dot orange"></span><div><b>Forecast scope</b><p>The NPV below is “NPV if this round were terminal,” not yet a solved multi-round optimum.</p></div></div>
+          <hr>
+          <div class="kpi-strip">
+            <div class="pill">Labor / normal unit<b id="costLaborUnit">—</b></div>
+            <div class="pill">Material unit cost<b id="costMaterialUnit">—</b></div>
+            <div class="pill">Effective tax rate<b id="costTaxRate">—</b></div>
+            <div class="pill">FG holding / unit<b id="costFGHold">—</b></div>
+            <div class="pill">RM holding / unit<b id="costRMHold">—</b></div>
+          </div>
+        </div>
+      </div>
+      <div class="spacer"></div>
+      <div class="grid g2">
+        <div class="card">
+          <div class="title-row"><h3>Projected P&L — Current Decision</h3><span class="badge warn">FORECAST</span></div>
+          <div class="scroll"><table><tbody id="forecastPLBody"></tbody></table></div>
+        </div>
+        <div class="card">
+          <div class="title-row"><h3>Forecast Output</h3><span class="badge info">ONE-ROUND</span></div>
+          <div class="grid g2">
+            <div class="pill">Predicted demand<b id="fDemand">—</b></div>
+            <div class="pill">Projected sales<b id="fSales">—</b></div>
+            <div class="pill">Actual production est.<b id="fProduction">—</b></div>
+            <div class="pill">Ending FGI<b id="fFGI">—</b></div>
+            <div class="pill">Net profit<b id="fNetProfit">—</b></div>
+            <div class="pill">Ending equity<b id="fEndingEquity">—</b></div>
+            <div class="pill">Economic equity<b id="fEconomicEquity">—</b></div>
+            <div class="pill">Terminal-if-now NPV<b id="fNPV">—</b></div>
+          </div>
+          <div class="spacer"></div><div id="forecastWarnings" class="small muted"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="scenarios" class="section">
+      <div class="callout gold"><b>Scenario presets are stress tests, not automatic recommendations.</b> Conservative/Base/Aggressive alter the current decision package, re-predict demand, then run the same calibrated P&L and structural NPV logic.</div>
+      <div class="spacer"></div>
+      <div class="card">
+        <div class="title-row"><h3>Scenario Comparison</h3><button id="refreshScenarios" class="btn">Refresh scenarios</button></div>
+        <div class="scroll"><table>
+          <thead><tr><th>Scenario</th><th>Price</th><th>Mkt</th><th>R&D</th><th>Production</th><th>Demand</th><th>Sales</th><th>Net Profit</th><th>Ending Equity</th><th>Terminal-if-now NPV</th></tr></thead>
+          <tbody id="scenarioBody"></tbody>
+        </table></div>
+      </div>
+      <div class="spacer"></div>
+      <div class="grid g3">
+        <div class="card"><h3>Conservative</h3><p class="small muted">Lower commercial/support spend, modest production buffer, no incremental equipment by default.</p><button class="btn" data-apply-scenario="conservative">Apply to Decision Lab</button></div>
+        <div class="card"><h3>Base</h3><p class="small muted">Uses the current Decision Lab package, with calibrated demand replacing the manual demand only for scenario evaluation.</p><button class="btn primary" data-apply-scenario="base">Apply to Decision Lab</button></div>
+        <div class="card"><h3>Aggressive</h3><p class="small muted">Higher commercial spend and larger production buffer; intended to expose upside and liquidity/overproduction risk.</p><button class="btn" data-apply-scenario="aggressive">Apply to Decision Lab</button></div>
       </div>
     </section>
 
@@ -424,6 +507,8 @@ function nav(id){
     dashboard:['Control Center','Structural decision engine • verified mechanics first'],
     setup:['Game Setup','Environment and opening-state parameters'],
     decision:['Decision Lab','Evaluate the eight decisions before submitting'],
+    calibration:['Calibration & Forecast','Empirical demand model and transparent P&L forecast'],
+    scenarios:['Scenario Lab','Stress-test alternative decision packages'],
     audit:['Formula Audit','Verified formulas, assumptions, and remaining calibration gaps'],
     import:['HAR Import','Read TopBoss data directly from a browser HAR capture']
   };
@@ -471,6 +556,216 @@ function readForms(){
   save(); render();
 }
 $$('input,select').forEach(x=>x.addEventListener('change',readForms));
+
+
+/* MBS v0.2 — empirical calibration + transparent forecast */
+function v02Dataset(){
+  return model.imported || {
+    environment: initialSample.environment,
+    economy: initialSample.economy,
+    operation: initialSample.operation,
+    finance: initialSample.finance,
+    rank: initialSample.rank
+  };
+}
+function v02Median(a){
+  const x=a.filter(Number.isFinite).sort((a,b)=>a-b);
+  if(!x.length) return 0;
+  const m=Math.floor(x.length/2);
+  return x.length%2?x[m]:(x[m-1]+x[m])/2;
+}
+function v02Solve(A,b){
+  const n=A.length, M=A.map((r,i)=>[...r,b[i]]);
+  for(let i=0;i<n;i++){
+    let p=i; for(let j=i+1;j<n;j++) if(Math.abs(M[j][i])>Math.abs(M[p][i])) p=j;
+    [M[i],M[p]]=[M[p],M[i]];
+    const d=M[i][i]||1e-12;
+    for(let k=i;k<=n;k++) M[i][k]/=d;
+    for(let j=0;j<n;j++) if(j!==i){
+      const q=M[j][i];
+      for(let k=i;k<=n;k++) M[j][k]-=q*M[i][k];
+    }
+  }
+  return M.map(r=>r[n]);
+}
+function v02Macro(e){
+  if(!e) return 1;
+  return (Number(e.growth_index||100)/100)*(Number(e.season_index||100)/100)*Number(e.product_lifecycle_index_n||1);
+}
+function v02DemandFit(lambda=0.8){
+  const d=v02Dataset(), op=d.operation||[], eco=d.economy||[];
+  const rows=[];
+  for(let r=1;r<op.length;r++){
+    const o=op[r], dec=o?.decision, y=Number(o?.sales?.potential_demand);
+    if(!dec || !Number.isFinite(y) || y<=0) continue;
+    rows.push({
+      x:[Number(dec.price),Math.log1p(Number(dec.marketing||0)),Math.log1p(Number(dec.rd||0)),v02Macro(eco[r])],
+      y, round:r
+    });
+  }
+  if(rows.length<4) return null;
+  const p=4, means=[], sds=[];
+  for(let j=0;j<p;j++){
+    const vals=rows.map(r=>r.x[j]);
+    const mean=vals.reduce((a,b)=>a+b,0)/vals.length;
+    const sd=Math.sqrt(vals.reduce((a,b)=>a+(b-mean)*(b-mean),0)/Math.max(1,vals.length-1))||1;
+    means.push(mean); sds.push(sd);
+  }
+  const X=rows.map(r=>[1,...r.x.map((v,j)=>(v-means[j])/sds[j])]);
+  const k=p+1, XtX=Array.from({length:k},()=>Array(k).fill(0)), Xty=Array(k).fill(0);
+  for(let i=0;i<X.length;i++) for(let a=0;a<k;a++){
+    Xty[a]+=X[i][a]*rows[i].y;
+    for(let c=0;c<k;c++) XtX[a][c]+=X[i][a]*X[i][c];
+  }
+  for(let j=1;j<k;j++) XtX[j][j]+=lambda;
+  const beta=v02Solve(XtX,Xty);
+  const pred=rows.map((r,i)=>X[i].reduce((z,v,j)=>z+v*beta[j],0));
+  const ybar=rows.reduce((z,r)=>z+r.y,0)/rows.length;
+  const sse=rows.reduce((z,r,i)=>z+(r.y-pred[i])**2,0);
+  const sst=rows.reduce((z,r)=>z+(r.y-ybar)**2,0)||1;
+  return {beta,means,sds,n:rows.length,r2:1-sse/sst,mae:rows.reduce((z,r,i)=>z+Math.abs(r.y-pred[i]),0)/rows.length,rows};
+}
+function v02PredictDemand(decision,round=model.currentRound){
+  const fit=v02DemandFit();
+  if(!fit) return Number(decision.expectedDemand||0);
+  const eco=v02Dataset().economy||[];
+  const er=eco[Math.min(Math.max(0,round),Math.max(0,eco.length-1))];
+  const raw=[Number(decision.price||0),Math.log1p(Number(decision.marketing||0)),Math.log1p(Number(decision.rd||0)),v02Macro(er)];
+  const z=[1,...raw.map((v,j)=>(v-fit.means[j])/fit.sds[j])];
+  return Math.max(0,z.reduce((a,v,j)=>a+v*fit.beta[j],0));
+}
+function v02CostCalibration(){
+  const d=v02Dataset(), op=d.operation||[], fin=d.finance||{};
+  const labor=[], mat=[], tax=[], fgh=[], rmh=[], admin=[];
+  let base=null;
+  for(const key of Object.keys(fin)){
+    const r=Number(key), f=fin[key], o=op[r];
+    if(!f||!o) continue;
+    const prod=Number(o.production?.production_realized||0);
+    const sales=Number(o.sales?.volume||0);
+    if(prod>0 && Number(f.income?.labor_cost)>0) labor.push(Number(f.income.labor_cost)/prod);
+    if(Number(f.income?.unit_cost_mat)>0) mat.push(Number(f.income.unit_cost_mat));
+    const pbt=Number(f.income?.net_profit_before_tax), tx=Number(f.income?.income_tax);
+    if(pbt>0 && tx>=0) tax.push(tx/pbt);
+    const fg=Number(o.production?.finished_goods_inventory||0), gh=Number(f.income?.goods_holding_cost||0);
+    if(fg>0 && gh>0) fgh.push(gh/fg);
+    const rm=Number(o.production?.raw_material_inventory_end||0), mh=Number(f.income?.mat_holding_cost||0);
+    if(rm>0 && mh>0) rmh.push(mh/rm);
+    if(Number(f.income?.admin_misc_expense)>=0) admin.push(Number(f.income.admin_misc_expense));
+    if(!base || r>base.r) base={r,f,o,sales};
+  }
+  return {
+    laborUnit:v02Median(labor)||1.5,
+    materialUnit:v02Median(mat)||1,
+    taxRate:v02Median(tax)||0.30,
+    fgHold:v02Median(fgh)||0,
+    rmHold:v02Median(rmh)||0,
+    adminMisc:v02Median(admin)||0,
+    baseSales:base?.sales||1,
+    baseRevenue:Number(base?.o?.financial?.revenue||1),
+    currentMatPrice:Number(base?.f?.cash_flow?.mat_price||1)
+  };
+}
+function v02Forecast(decision){
+  const s=model.state, c=v02CostCalibration();
+  const demand=v02PredictDemand(decision);
+  const maxCap=1.5*Number(s.capacity||0);
+  const rmMax=Number(s.rawMaterial||0)*Number(s.conversion||0);
+  const production=Math.max(0,Math.min(Number(decision.production||0),maxCap,rmMax));
+  const available=Number(s.finishedGoods||0)+production;
+  const sales=Math.max(0,Math.min(demand,available));
+  const endingFGI=Math.max(0,available-sales);
+  const rmUsed=Number(s.conversion||0)>0?production/Number(s.conversion):0;
+  const endingRM=Math.max(0,Number(s.rawMaterial||0)-rmUsed);
+  const normal=Math.min(production,Number(s.capacity||0));
+  const overtime=Math.max(0,production-normal);
+  const labor=normal*c.laborUnit+overtime*c.laborUnit*1.5;
+  const material=rmUsed*c.materialUnit;
+  const depreciation=E.depreciationAmount(s.equipmentBV,0.025);
+  const ordering=E.orderingCostEstimate(decision.procurement,model.currentPriceIndex).estimated;
+  const equipmentFee=E.equipmentFee(decision.equipment);
+  const revenue=sales*Number(decision.price||0);
+  const activity=c.baseSales>0?sales/c.baseSales:1;
+  const adminMisc=c.adminMisc*(0.70+0.30*Math.max(0,activity));
+  const fgHold=endingFGI*c.fgHold;
+  const rmHold=endingRM*c.rmHold;
+  const normalInterest=Number(s.normalDebt||0)*(Number(model.environment.annual_interest_rate||0)/100/4);
+  const abnormalAnnual=Math.min((Number(model.environment.annual_interest_rate||0)/100)+((Number(s.normalDebt||0)+Number(s.abnormalDebt||0))/Math.max(1,Number(s.equity||1)))*0.10,0.30);
+  const abnormalInterest=Number(s.abnormalDebt||0)*abnormalAnnual/4;
+  const expenses={
+    labor,material,maintenance:Number(decision.maintenance||0),depreciation,ordering,equipmentFee,
+    marketing:Number(decision.marketing||0),rd:Number(decision.rd||0),adminMisc,fgHold,rmHold,
+    interest:normalInterest+abnormalInterest
+  };
+  const totalExpenses=Object.values(expenses).reduce((a,b)=>a+b,0);
+  const pbt=revenue-totalExpenses;
+  const tax=Math.max(0,pbt*c.taxRate);
+  const netProfit=pbt-tax;
+  const actualDividend=E.actualDividend(decision.dividend,s.equity,model.equityFloor);
+  const endingEquity=Number(s.equity||0)+netProfit-actualDividend;
+  const cap=E.nextCapacity(s.capacity,decision.equipment,model.currentPriceIndex);
+  const nextBV=E.nextBookValue(s.equipmentBV,decision.equipment,0.025);
+  const rc=E.replacementCost(cap.total,model.nextPriceIndex);
+  const ee=E.economicEquity(endingEquity,nextBV,rc);
+  let dividends=[...(model.actualDividends||[])].slice(0,Math.max(0,model.currentRound-1));
+  while(dividends.length<Math.max(0,model.currentRound-1)) dividends.push(0);
+  dividends.push(actualDividend);
+  const npv=E.npv({annualRatePct:model.environment.annual_interest_rate,dividends,terminalEconomicEquity:ee,initialEquity:model.initialEquity});
+  const warnings=[];
+  if(production+1<Number(decision.production||0)) warnings.push('Production request is constrained by capacity and/or current raw materials.');
+  if(sales+1<demand) warnings.push('Projected demand is not fully served; potential lost sales remain.');
+  if(endingFGI>0.15*Math.max(1,sales)) warnings.push('Ending finished-goods inventory exceeds 15% of projected sales.');
+  return {demand,production,sales,endingFGI,endingRM,revenue,expenses,totalExpenses,pbt,tax,netProfit,actualDividend,endingEquity,ee,npv,cost:c,warnings};
+}
+function v02Scenarios(){
+  const d={...model.decision};
+  const variants=[
+    {name:'Conservative',key:'conservative',price:d.price+0.10,marketing:d.marketing*0.80,rd:d.rd*0.80,maintenance:d.maintenance*0.80,equipment:0,buffer:0.98},
+    {name:'Base',key:'base',price:d.price,marketing:d.marketing,rd:d.rd,maintenance:d.maintenance,equipment:d.equipment,buffer:1.00},
+    {name:'Aggressive',key:'aggressive',price:Math.max(0,d.price-0.10),marketing:d.marketing*1.20,rd:d.rd*1.20,maintenance:d.maintenance*1.15,equipment:d.equipment*1.25,buffer:1.05}
+  ];
+  return variants.map(v=>{
+    const x={...d,...v};
+    x.expectedDemand=v02PredictDemand(x);
+    x.production=Math.max(0,x.expectedDemand*v.buffer-Number(model.state.finishedGoods||0));
+    const f=v02Forecast(x);
+    return {...v,decision:x,forecast:f};
+  });
+}
+function v02Render(){
+  const fit=v02DemandFit(), c=v02CostCalibration(), f=v02Forecast(model.decision);
+  text('#calN',fit?fit.n:'Insufficient');
+  text('#calR2',fit?fit.r2.toFixed(3):'—');
+  text('#calMAE',fit?E.num(fit.mae):'—');
+  text('#calDemand',fit?E.num(v02PredictDemand(model.decision)):'—');
+  const names=['Price','log(Marketing+1)','log(R&D+1)','Macro index'];
+  html('#calCoefBody',fit?names.map((n,i)=>{
+    const b=fit.beta[i+1], sign=b>0?'Positive':'Negative';
+    return '<tr><td>'+n+'</td><td>'+E.num(b)+'</td><td><span class="badge '+(b>0?'ok':'warn')+'">'+sign+'</span></td></tr>';
+  }).join(''):'<tr><td colspan="3">Import at least four historical rounds.</td></tr>');
+  text('#costLaborUnit',E.money(c.laborUnit)); text('#costMaterialUnit',E.money(c.materialUnit));
+  text('#costTaxRate',(c.taxRate*100).toFixed(1)+'%'); text('#costFGHold',E.money(c.fgHold)); text('#costRMHold',E.money(c.rmHold));
+  const pl=[
+    ['Revenue',f.revenue],['Labor',-f.expenses.labor],['Raw material used',-f.expenses.material],
+    ['Maintenance',-f.expenses.maintenance],['Depreciation',-f.expenses.depreciation],
+    ['Ordering cost',-f.expenses.ordering],['Equipment fee',-f.expenses.equipmentFee],
+    ['Marketing',-f.expenses.marketing],['R&D',-f.expenses.rd],['Admin / misc calibrated',-f.expenses.adminMisc],
+    ['FG holding',-f.expenses.fgHold],['RM holding',-f.expenses.rmHold],['Interest',-f.expenses.interest],
+    ['Profit before tax',f.pbt],['Tax',-f.tax],['Net profit',f.netProfit]
+  ];
+  html('#forecastPLBody',pl.map(([n,v])=>'<tr><td>'+n+'</td><td class="'+(v<0?'muted':'')+'">'+E.money(v)+'</td></tr>').join(''));
+  text('#fDemand',E.num(f.demand));text('#fSales',E.num(f.sales));text('#fProduction',E.num(f.production));text('#fFGI',E.num(f.endingFGI));
+  text('#fNetProfit',E.money(f.netProfit));text('#fEndingEquity',E.money(f.endingEquity));text('#fEconomicEquity',E.money(f.ee));text('#fNPV',E.money(f.npv.value));
+  html('#forecastWarnings',f.warnings.length?f.warnings.map(x=>'• '+x).join('<br>'):'No structural warning from the current forecast.');
+  const sc=v02Scenarios();
+  html('#scenarioBody',sc.map(x=>'<tr><td><b>'+x.name+'</b></td><td>'+E.money(x.decision.price)+'</td><td>'+E.money(x.decision.marketing)+'</td><td>'+E.money(x.decision.rd)+'</td><td>'+E.num(x.forecast.production)+'</td><td>'+E.num(x.forecast.demand)+'</td><td>'+E.num(x.forecast.sales)+'</td><td>'+E.money(x.forecast.netProfit)+'</td><td>'+E.money(x.forecast.endingEquity)+'</td><td>'+E.money(x.forecast.npv.value)+'</td></tr>').join(''));
+}
+function v02ApplyScenario(key){
+  const x=v02Scenarios().find(z=>z.key===key); if(!x)return;
+  const d=x.decision;
+  model.decision={...model.decision,price:d.price,production:Math.round(d.production),expectedDemand:Math.round(x.forecast.demand),marketing:Math.round(d.marketing),rd:Math.round(d.rd),maintenance:Math.round(d.maintenance),equipment:Math.round(d.equipment)};
+  save();hydrateForms();v02Render();nav('decision');
+}
 
 function calculations(){
   const s=model.state,d=model.decision;
@@ -639,5 +934,12 @@ $('#addActualDividend').onclick=()=>{
 };
 
 restore(); hydrateForms();
+v02Render();
+const _baseRender=render;
+render=function(){ _baseRender(); try{v02Render();}catch(e){console.warn('v0.2 render',e);} };
+$('#recalibrateDemand').onclick=()=>v02Render();
+$('#refreshScenarios').onclick=()=>v02Render();
+$('#applyPredictedDemand').onclick=()=>{model.decision.expectedDemand=Math.round(v02PredictDemand(model.decision));save();hydrateForms();v02Render();};
+$('[data-apply-scenario]').forEach(b=>b.onclick=()=>v02ApplyScenario(b.dataset.applyScenario));
 </script>
 </body></html>
