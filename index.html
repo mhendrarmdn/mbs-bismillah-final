@@ -48,6 +48,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
       <button data-target="calibration"><span class="ico">∿</span> Calibration & Forecast</button>
       <button data-target="scenarios"><span class="ico">◇</span> Scenario Lab</button>
       <button data-target="rolling"><span class="ico">↻</span> Rolling Optimizer</button>
+      <button data-target="backtest"><span class="ico">≋</span> Backtest & Confidence</button>
       <button data-target="audit"><span class="ico">✓</span> Formula Audit</button>
       <button data-target="import"><span class="ico">⇩</span> HAR Import</button>
     </div>
@@ -313,6 +314,68 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
           <div class="card metric"><div class="label">PV dividends</div><div class="value" id="rollPVDiv">—</div></div>
           <div class="card metric"><div class="label">Worst overdraft in path</div><div class="value" id="rollOverdraft">—</div></div>
         </div>
+      </div>
+    </section>
+
+
+    <section id="backtest" class="section">
+      <div class="grid g4">
+        <div class="card metric"><div class="label">Our final NPV</div><div class="value" id="btOurNPV">—</div><div class="foot">From imported/sample ranking</div></div>
+        <div class="card metric"><div class="label">Winner NPV</div><div class="value" id="btWinnerNPV">—</div><div class="foot" id="btWinnerName">—</div></div>
+        <div class="card metric"><div class="label">NPV gap</div><div class="value" id="btGap">—</div><div class="foot">Winner minus our result</div></div>
+        <div class="card metric"><div class="label">Support-spend gap</div><div class="value" id="btSupportGap">—</div><div class="foot">Marketing + R&D + maintenance vs winner</div></div>
+      </div>
+
+      <div class="spacer"></div>
+      <div class="grid g2">
+        <div class="card">
+          <div class="title-row"><h3>Historical Decision Audit</h3><span class="badge info">HAR FACTS</span></div>
+          <p class="small muted">This table is descriptive: it highlights demand left unserved, inventory carried, support spending, and realized profit by round.</p>
+          <div class="scroll"><table>
+            <thead><tr><th>Round</th><th>Demand</th><th>Sales</th><th>Unserved</th><th>Ending FGI</th><th>Mkt+R&D+Maint.</th><th>FG+RM holding</th><th>Net Profit</th></tr></thead>
+            <tbody id="btAuditBody"></tbody>
+          </table></div>
+        </div>
+        <div class="card">
+          <div class="title-row"><h3>Accounting Engine Backtest</h3><span class="badge ok">VALIDATION</span></div>
+          <p class="small muted">Uses actual historical demand and conversion to isolate the accounting/state engine. R1 is excluded because opening inventory has special initialization.</p>
+          <div class="scroll"><table>
+            <thead><tr><th>Round</th><th>Cash error</th><th>Equity error</th><th>PBT error</th></tr></thead>
+            <tbody id="btEngineBody"></tbody>
+          </table></div>
+          <div class="spacer"></div>
+          <div class="kpi-strip">
+            <div class="pill">Max cash error<b id="btCashErr">—</b></div>
+            <div class="pill">Max equity error<b id="btEquityErr">—</b></div>
+            <div class="pill">Max PBT error<b id="btPBTErr">—</b></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="spacer"></div>
+      <div class="card">
+        <div class="title-row"><div><h3>Uncertainty Stress Test</h3><div class="small muted">Runs repeated simulations around the best Rolling Optimizer path using observed demand/conversion model residuals.</div></div><button id="runStress" class="btn gold">Stress-test best path</button></div>
+        <div class="spacer"></div>
+        <div id="stressStatus" class="callout">Run Rolling Optimizer first, then stress-test the fixed decision path.</div>
+        <div class="spacer"></div>
+        <div class="grid g4">
+          <div class="card metric"><div class="label">NPV P10</div><div class="value" id="stressP10">—</div><div class="foot">Downside case</div></div>
+          <div class="card metric"><div class="label">Median NPV</div><div class="value" id="stressP50">—</div><div class="foot">Central case</div></div>
+          <div class="card metric"><div class="label">NPV P90</div><div class="value" id="stressP90">—</div><div class="foot">Upside case</div></div>
+          <div class="card metric"><div class="label">Overdraft probability</div><div class="value" id="stressODProb">—</div><div class="foot">Any abnormal debt on path</div></div>
+        </div>
+        <div class="spacer"></div>
+        <div class="grid g3">
+          <div class="pill">P(NPV &gt; 0)<b id="stressPositive">—</b></div>
+          <div class="pill">Demand sigma used<b id="stressDemandSigma">—</b></div>
+          <div class="pill">Conversion sigma used<b id="stressConvSigma">—</b></div>
+        </div>
+      </div>
+
+      <div class="spacer"></div>
+      <div class="card">
+        <div class="title-row"><h3>Why the optimizer prefers its first decision</h3><span class="badge warn">EXPLANATION</span></div>
+        <div id="decisionExplanation" class="callout">Run Rolling Optimizer to generate an explanation.</div>
       </div>
     </section>
 
@@ -597,6 +660,7 @@ function nav(id){
     calibration:['Calibration & Forecast','Empirical demand model and transparent P&L forecast'],
     scenarios:['Scenario Lab','Stress-test alternative decision packages'],
     rolling:['Rolling Optimizer','Beam-search decisions from the active round through the terminal round'],
+    backtest:['Backtest & Confidence','Historical strategy audit and uncertainty stress test'],
     audit:['Formula Audit','Verified formulas, assumptions, and remaining calibration gaps'],
     import:['HAR Import','Read TopBoss data directly from a browser HAR capture']
   };
