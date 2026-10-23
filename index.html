@@ -727,6 +727,7 @@ $$('.nav button').forEach(b=>b.onclick=()=>nav(b.dataset.target));
 
 function hydrateForms(){
   setv('#appMode',model.appMode||'practice');
+  setv('#rollCompScenario',model.competitorScenario||'hold');
   setv('#totalRounds',model.totalRounds); setv('#currentRound',model.currentRound); setv('#equityFloor',model.equityFloor);
   setv('#initialEquity',model.initialEquity);
   setv('#annualRate',model.environment.annual_interest_rate);
@@ -754,6 +755,7 @@ function hydrateForms(){
 
 function readForms(){
   model.appMode=$('#appMode').value||'practice';
+  model.competitorScenario=$('#rollCompScenario')?.value||model.competitorScenario||'hold';
   model.totalRounds=val('#totalRounds'); model.currentRound=val('#currentRound'); model.equityFloor=val('#equityFloor');
   model.initialEquity=val('#initialEquity');
   model.environment.annual_interest_rate=val('#annualRate');
@@ -988,9 +990,9 @@ function v03InferOwnCompany(data=v03Dataset()){
   return Object.entries(votes).sort((a,b)=>b[1]-a[1])[0]?.[0]||null;
 }
 function v03CompStats(data,round,ownName){
-  // Future competitor decisions are unknown: freeze market position at the latest observable round.
   const latestObservable=Math.max(0,Number(model.currentRound||1)-1);
-  const requested=Number(round)>latestObservable?latestObservable:Number(round);
+  const future=Number(round)>latestObservable;
+  const requested=future?latestObservable:Number(round);
   let rows=v03RoundRows(data,requested);
   if(!rows.length){
     const n=v03North(data);
@@ -1002,7 +1004,14 @@ function v03CompStats(data,round,ownName){
   }
   const others=rows.filter(x=>x.company_name!==ownName);
   const avg=k=>others.length?others.reduce((a,x)=>a+Number(x[k]||0),0)/others.length:0;
-  return {price:avg('price'),quality:avg('product_quality'),image:avg('product_image'),totalVolume:others.reduce((a,x)=>a+Number(x.volume||0),0),count:others.length};
+  const out={price:avg('price'),quality:avg('product_quality'),image:avg('product_image'),totalVolume:others.reduce((a,x)=>a+Number(x.volume||0),0),count:others.length};
+  if(future){
+    const sc=model.competitorScenario||'hold';
+    if(sc==='pricewar') out.price*=0.97;
+    if(sc==='stronger'){out.quality+=0.03;out.image+=0.03;}
+    if(sc==='adverse'){out.price*=0.97;out.quality+=0.025;out.image+=0.025;out.totalVolume*=1.03;}
+  }
+  return out;
 }
 function v03LinearFit(rows,lambda=1.5){
   if(!rows?.length) return null;
@@ -1354,6 +1363,48 @@ function v03ApplyRollingFirst(){
 /* v0.4 — historical audit, walk-back validation, and uncertainty stress testing */
 
 
+
+/* v0.8 — competitor branching + learning impact + round journal */
+function v08Ensure(){
+  if(!Array.isArray(model.roundJournal)) model.roundJournal=[];
+  if(!model.competitorScenario) model.competitorScenario='hold';
+}
+function v08Journal(event,round,summary,details={}){
+  v08Ensure();
+  model.roundJournal.unshift({time:new Date().toISOString(),event,round:Number(round||0),summary,details});
+  model.roundJournal=model.roundJournal.slice(0,80);
+}
+function v08RenderJournal(){
+  v08Ensure();
+  const rows=model.roundJournal||[];
+  html('#journalBody',rows.length?rows.map(x=>'<tr><td>'+new Date(x.time).toLocaleString()+'</td><td>R'+x.round+'</td><td>'+x.event+'</td><td>'+x.summary+'</td></tr>').join(''):'<tr><td colspan="4" class="muted">No journal entries yet.</td></tr>');
+}
+function v08ExportJournal(){
+  v08Ensure();
+  const blob=new Blob([JSON.stringify(model.roundJournal,null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='mbs-round-journal.json';a.click();URL.revokeObjectURL(a.href);
+}
+function v08CompareLearning(){
+  v07Ensure();
+  const learned=JSON.parse(JSON.stringify(model.calibration));
+  const neutral={demandScale:1,conversionBias:0,rawPriceScale:1,lastReconciledRound:learned.lastReconciledRound||0};
+  let before=null,after=null;
+  try{
+    model.calibration=neutral;
+    before=v03RunRollingOptimizer();
+    model.calibration=learned;
+    after=v03RunRollingOptimizer();
+  }finally{model.calibration=learned;}
+  const b=before?.terminal?.npv?.value,a=after?.terminal?.npv?.value;
+  text('#impactBeforeNPV',Number.isFinite(b)?E.money(b):'—');
+  text('#impactAfterNPV',Number.isFinite(a)?E.money(a):'—');
+  text('#impactDeltaNPV',Number.isFinite(a)&&Number.isFinite(b)?E.money(a-b):'—');
+  const bd=before?.best?.path?.[0]?.decision,ad=after?.best?.path?.[0]?.decision;
+  const keys=['price','production','marketing','rd','procurement','maintenance','equipment','dividend'];
+  const changed=bd&&ad?keys.some(k=>Math.round(Number(bd[k]||0)*100)!==Math.round(Number(ad[k]||0)*100)):false;
+  text('#impactDecisionChange',bd&&ad?(changed?'YES':'NO'):'—');
+}
+
 /* v0.7 — RM cash-price forecast + locked submission snapshots + live reconciliation */
 function v07Ensure(){
   if(!model.submissionSnapshots) model.submissionSnapshots={};
@@ -1398,6 +1449,7 @@ function v07LockSnapshot(silent=false){
     round,createdAt:new Date().toISOString(),decision:JSON.parse(JSON.stringify(model.decision)),
     predicted:{demand:b.demand,conversion:b.conversion,sales:tr.metrics.sales,netProfit:tr.metrics.netProfit,cashEnd:tr.metrics.cashEnd,equity:tr.metrics.equity,rmPrice:Number(state.materialPurchasePrice||v07ForecastRMPrice(round))}
   };
+  v08Journal('SUBMISSION LOCK',round,'Forecast locked; price '+Number(model.decision.price||0).toFixed(2)+', production '+Math.round(Number(model.decision.production||0))+'.',{decision:model.decision});
   save();
   if(!silent) alert('Forecast snapshot locked for Round '+round+'.');
   try{v07RenderLearning();}catch(_){}
@@ -1415,6 +1467,7 @@ function v07Reconcile(data,round){
   if(a.rmPrice&&p.rmPrice>0) model.calibration.rawPriceScale=v07Clamp(0.60*Number(model.calibration.rawPriceScale||1)+0.40*(a.rmPrice/p.rmPrice),0.70,1.30);
   model.calibration.lastReconciledRound=round;
   model.lastReconciliation={round,forecast:p,actual:a,error:{demand:a.demand-Number(p.demand||0),conversion:a.conversion-Number(p.conversion||0),sales:a.sales-Number(p.sales||0),netProfit:a.netProfit-Number(p.netProfit||0),cashEnd:a.cashEnd-Number(p.cashEnd||0),equity:a.equity-Number(p.equity||0),rmPrice:a.rmPrice&&p.rmPrice?a.rmPrice-p.rmPrice:null}};
+  v08Journal('ROUND RECONCILED',round,'Demand error '+Math.round(model.lastReconciliation.error.demand)+'; profit error '+Math.round(model.lastReconciliation.error.netProfit)+'.',{reconciliation:model.lastReconciliation,calibration:model.calibration});
   return model.lastReconciliation;
 }
 function v07RenderLearning(){
