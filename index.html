@@ -55,7 +55,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
       <button data-target="audit"><span class="ico">✓</span> Formula Audit</button>
       <button data-target="import"><span class="ico">⇩</span> HAR Import</button>
     </div>
-    <div class="side-note">v0.8 • live learning + rival scenarios<br>Structural engine is based on verified Simulation 1 mechanics. Demand-response calibration is intentionally not guessed.</div>
+    <div class="side-note">v0.10 • competition cockpit + weighted robustness<br>Structural engine is based on verified Simulation 1 mechanics. Demand-response calibration is intentionally not guessed.</div>
   </aside>
   <main class="main">
     <div class="topbar">
@@ -2416,8 +2416,9 @@ try{v04RenderBacktest();}catch(e){console.warn(e);}
 try{v06RenderSubmission();}catch(e){console.warn(e);}
 try{v07RenderLearning();}catch(e){console.warn(e);}
 try{v08RenderJournal();}catch(e){console.warn(e);}
+try{v10RenderCompetition();}catch(e){console.warn(e);}
 const _baseRender=render;
-render=function(){ _baseRender(); try{v02Render();}catch(e){console.warn('v0.2 render',e);} try{v03RenderRollingDiagnostics();}catch(e){console.warn('v0.3 diagnostics',e);} try{v04RenderBacktest();}catch(e){console.warn('v0.4 backtest',e);} try{v06RenderSubmission();}catch(e){console.warn('v0.6 submission',e);} try{v07RenderLearning();}catch(e){console.warn('v0.7 learning',e);} try{v08RenderJournal();}catch(e){console.warn('v0.8 journal',e);} };
+render=function(){ _baseRender(); try{v02Render();}catch(e){console.warn('v0.2 render',e);} try{v03RenderRollingDiagnostics();}catch(e){console.warn('v0.3 diagnostics',e);} try{v04RenderBacktest();}catch(e){console.warn('v0.4 backtest',e);} try{v06RenderSubmission();}catch(e){console.warn('v0.6 submission',e);} try{v07RenderLearning();}catch(e){console.warn('v0.7 learning',e);} try{v08RenderJournal();}catch(e){console.warn('v0.8 journal',e);} try{v10RenderCompetition();}catch(e){console.warn('v0.10 competition',e);} };
 $('#recalibrateDemand').onclick=()=>v02Render();
 $('#refreshScenarios').onclick=()=>v02Render();
 $('#runFinalSearch').onclick=()=>v03FinalCandidateSearch();
@@ -2430,7 +2431,12 @@ $('#compareLearning').onclick=()=>v08CompareLearning();
 $('#exportJournal').onclick=()=>v08ExportJournal();
 $('#runPriceProdHeatmap').onclick=()=>{html('#ppHeatmapStatus','Running 25-cell continuation search…');setTimeout(()=>{try{v09RunPriceProductionHeatmap();}catch(e){html('#ppHeatmapStatus','<b>Heatmap error:</b> '+e.message);console.error(e);}},20);};
 $('#runSupportHeatmap').onclick=()=>{html('#supportHeatmapStatus','Running 25-cell continuation search…');setTimeout(()=>{try{v09RunSupportHeatmap();}catch(e){html('#supportHeatmapStatus','<b>Heatmap error:</b> '+e.message);console.error(e);}},20);};
-$('#runEnsemble').onclick=()=>{html('#ensembleStatus','Running four rival-scenario optimizations and cross-evaluation…');setTimeout(()=>{try{v09RunScenarioEnsemble();}catch(e){html('#ensembleStatus','<b>Ensemble error:</b> '+e.message);console.error(e);}},20);};
+$('#runEnsemble').onclick=()=>{html('#ensembleStatus','Running four rival-scenario optimizations and cross-evaluation…');setTimeout(()=>{try{v09RunScenarioEnsemble();v10RenderCompetition();}catch(e){html('#ensembleStatus','<b>Ensemble error:</b> '+e.message);console.error(e);}},20);};
+$('#prepareCompetition').onclick=()=>{html('#compReadiness','<b>RUNNING:</b> rolling optimizer → ensemble → robust continuation → stress test → price/production heatmap.');setTimeout(()=>{try{v10PrepareCompetition();}catch(e){html('#compReadiness','<b>Preparation error:</b> '+e.message);console.error(e);}},20);};
+$('#compApplyRobust').onclick=()=>v10ApplyRobust();
+$('#compCopy').onclick=()=>{v10ApplyRobust();v06CopySubmission();v10RenderCompetition();};
+$('#compExport').onclick=()=>v10ExportPack();
+$('#exportSensitivity').onclick=()=>v10ExportSensitivity();
 $('#downloadDecision').onclick=()=>v06DownloadDecision();
 $('#applyPredictedDemand').onclick=()=>{model.decision.expectedDemand=Math.round(v02PredictDemand(model.decision));save();hydrateForms();v02Render();};
 $('[data-apply-scenario]').forEach(b=>b.onclick=()=>v02ApplyScenario(b.dataset.applyScenario));
