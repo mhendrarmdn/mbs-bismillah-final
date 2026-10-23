@@ -973,7 +973,7 @@ function v02Macro(e){
 function v02DemandFit(lambda=0.8){
   const d=v02Dataset(), op=d.operation||[], eco=d.economy||[];
   const rows=[];
-  for(let r=1;r<op.length && r<=maxRound;r++){
+  for(let r=1;r<op.length;r++){
     const o=op[r], dec=o?.decision, y=Number(o?.sales?.potential_demand);
     if(!dec || !Number.isFinite(y) || y<=0) continue;
     rows.push({
