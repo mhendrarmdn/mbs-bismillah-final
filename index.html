@@ -1128,7 +1128,7 @@ function v02Forecast(decision){
 /* v0.3 — competitor-aware response models + rolling multi-round state transition */
 let v03LastRollingResult=null;
 
-function v03Dataset(){ return model.imported || {environment:initialSample.environment,economy:initialSample.economy,operation:initialSample.operation,finance:initialSample.finance,rank:initialSample.rank,competitors:null}; }
+function v03Dataset(){ return model.imported || {environment:initialSample.environment,economy:initialSample.economy,operation:initialSample.operation,finance:initialSample.finance,rank:initialSample.rank,competitors:initialSample.competitors||null}; }
 function v03North(data=v03Dataset()){ const x=data?.competitors?.north; if(!x) return null; return x; }
 function v03RoundRows(data,round){
   const n=v03North(data); if(!n) return [];
