@@ -199,3 +199,14 @@ Before the real event, run at least one complete R1-R4 rehearsal:
 9. repeat through R4
 
 Do not treat a single projected NPV point estimate as a guarantee.
+
+
+## Sales Status vs Rankings
+
+TopBoss behavior confirmed for the live workflow:
+
+- Competitor data is available by round in **Sales Status**.
+- The HAR parser reads `/bus/sales` period lists for competitor price, sales volume, market share, product quality, and product image.
+- **Rankings are exposed only after all rounds are complete.**
+- Rankings are final audit/output data only and are excluded from live optimizer/confidence logic.
+- If Sales Status is missing from the imported HAR, the Competition Dashboard warns the team to open Sales Status and capture a fresh HAR.
