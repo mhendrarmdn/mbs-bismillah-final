@@ -163,3 +163,24 @@ The dashboard's HIGH / MEDIUM / LOW label is a heuristic summary based on:
 - worst rival-scenario NPV
 
 It is a decision-support indicator, not a statistical confidence level or guarantee of competition performance.
+
+
+## Evaluation cache
+
+v0.11 caches repeated fixed-first-decision continuation evaluations during heatmap and scenario-ensemble work. The cache key includes the active round, total horizon, rival scenario, key company-state values, live calibration factors, beam width, and the eight decision values. The cache is cleared when user inputs change and at the start of major analysis runs.
+
+This is a performance optimization only; it does not change model formulas or decision ranking.
+
+## Rival-weight presets
+
+Preset buttons only populate user-defined scenario weights:
+- Balanced: 25 / 25 / 25 / 25
+- Base-heavy: 50 / 20 / 15 / 15
+- Defensive: 15 / 20 / 20 / 45
+- Price-war: 15 / 50 / 15 / 20
+
+They are convenience defaults, not inferred probabilities.
+
+## Printable sheets
+
+The printable submission sheet contains the eight recommended decisions, selected robustness metrics, scenario weights, and active submission warnings. The post-round brief shows the latest forecast-vs-actual reconciliation and updated calibration factors. These are team workflow artifacts, not official TopBoss reports.
