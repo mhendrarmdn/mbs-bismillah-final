@@ -1,4 +1,4 @@
-# MBS Decision & NPV Engine — v0.11
+# MBS Decision & NPV Engine — v0.13
 
 A local-first decision workspace for the 2026 MBS E-Case Competition.
 
@@ -108,3 +108,18 @@ See `MODEL_VALIDATION.md`. Verified accounting mechanics are separated from cali
 
 ## Next build target
 v0.12: optional lightweight worker-based search for smoother UI during heavy heatmaps, plus saved scenario-weight profiles and team notes per round.
+
+## v0.13 live-safe hardening
+
+- Fixed an undefined `maxRound` runtime error in legacy demand calibration.
+- Fixed the remaining scenario-button `$().forEach` runtime selector bug.
+- Fixed a critical live-safe leak: `v03BehaviorModels(maxRound)` now actually stops at the requested completed round.
+- Added a competitor-aware Simulation-1 prior for early live rounds.
+- Replaced unstable early-round competitor-demand regression signs with bounded, directionally constrained relative-price / quality / image adjustments.
+- Embedded compact Simulation-1 competitor aggregate snapshots for practice and prior calibration.
+- Competition confidence now requires a **current-game imported competitor HAR**, not merely the bundled prior.
+- Added labor-cost live calibration and labor-cost uncertainty to stress testing.
+- Increased early-round demand uncertainty when no current-game demand regression is available.
+- Added explicit prior-assisted-demand warnings in the Competition Dashboard.
+
+See `HARDENING_REPORT.md` for runtime tests and known limitations.
