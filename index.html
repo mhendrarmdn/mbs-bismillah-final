@@ -437,7 +437,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
 
       <div class="spacer"></div>
       <div class="card">
-        <div class="title-row"><div><h3>Scenario Ensemble Ranking</h3><div class="small muted">Candidate first decisions are generated from Hold / Price War / Stronger / Adverse rival assumptions, then scored across all four scenarios.</div></div><button id="runEnsemble" class="btn primary">Run ensemble</button></div>
+        <div class="title-row"><div><h3>Scenario Ensemble Ranking</h3><div class="small muted">Candidate first decisions are generated from Hold / Price War / Stronger / Adverse rival assumptions, then scored across all four scenarios.</div></div><div class="actions"><button id="runEnsemble" class="btn primary">Run ensemble</button><button id="exportSensitivity" class="btn">Export results</button></div></div>
         <div class="spacer"></div>
         <div id="ensembleStatus" class="callout">No ensemble run yet.</div>
         <div class="spacer"></div>
@@ -855,6 +855,8 @@ $$('.nav button').forEach(b=>b.onclick=()=>nav(b.dataset.target));
 function hydrateForms(){
   setv('#appMode',model.appMode||'practice');
   setv('#rollCompScenario',model.competitorScenario||'hold');
+  const sw=model.scenarioWeights||{hold:0.25,pricewar:0.25,stronger:0.25,adverse:0.25};
+  setv('#weightHold',sw.hold);setv('#weightPricewar',sw.pricewar);setv('#weightStronger',sw.stronger);setv('#weightAdverse',sw.adverse);
   setv('#totalRounds',model.totalRounds); setv('#currentRound',model.currentRound); setv('#equityFloor',model.equityFloor);
   setv('#initialEquity',model.initialEquity);
   setv('#annualRate',model.environment.annual_interest_rate);
@@ -883,6 +885,12 @@ function hydrateForms(){
 function readForms(){
   model.appMode=$('#appMode').value||'practice';
   model.competitorScenario=$('#rollCompScenario')?.value||model.competitorScenario||'hold';
+  model.scenarioWeights={
+    hold:Math.max(0,val('#weightHold')||0),
+    pricewar:Math.max(0,val('#weightPricewar')||0),
+    stronger:Math.max(0,val('#weightStronger')||0),
+    adverse:Math.max(0,val('#weightAdverse')||0)
+  };
   model.totalRounds=val('#totalRounds'); model.currentRound=val('#currentRound'); model.equityFloor=val('#equityFloor');
   model.initialEquity=val('#initialEquity');
   model.environment.annual_interest_rate=val('#annualRate');
@@ -1535,6 +1543,8 @@ function v08CompareLearning(){
 
 /* v0.9 — first-decision sensitivity and rival-scenario ensemble */
 let v09LastEnsemble=null;
+let v09LastPriceProdHeatmap=null;
+let v09LastSupportHeatmap=null;
 
 function v09Controls(beam=7){
   return {
@@ -1619,6 +1629,7 @@ function v09RunPriceProductionHeatmap(){
     vals.push(row);
   }
   const result=v09RenderMatrix('#ppHeatmapTable',prodMult.map(x=>(x*100).toFixed(0)+'% prod'),priceSteps.map(x=>E.money(Number(base.price||0)+x)),vals,'Production');
+  v09LastPriceProdHeatmap={base:{...base},priceSteps,prodMult,values:vals,...result};
   html('#ppHeatmapStatus','Heatmap centered on <b>'+E.money(base.price)+'</b> and <b>'+E.num(base.production)+'</b> units. <b>'+result.near1+'/'+result.total+'</b> cells are within 1% of the local max; <b>'+result.near3+'/'+result.total+'</b> are within 3%. More near-optimal cells usually means a broader, less fragile optimum.');
   text('#sensLocalMax',E.money(result.max));text('#sensLocalMin',E.money(result.min));text('#sensLocalSpread',E.money(result.spread));
   return result;
@@ -1639,6 +1650,7 @@ function v09RunSupportHeatmap(){
     vals.push(row);
   }
   const result=v09RenderMatrix('#supportHeatmapTable',mult.map(x=>(x*100).toFixed(0)+'% Mkt'),mult.map(x=>(x*100).toFixed(0)+'% R&D'),vals,'Marketing');
+  v09LastSupportHeatmap={base:{...base},mult,values:vals,...result};
   html('#supportHeatmapStatus','Support-spend heatmap recenters production to modeled demand. <b>'+result.near1+'/'+result.total+'</b> cells are within 1% of local max; <b>'+result.near3+'/'+result.total+'</b> are within 3%.');
   return result;
 }
@@ -1650,6 +1662,30 @@ function v09Std(a){
   if(!a.length)return 0;const m=a.reduce((x,y)=>x+y,0)/a.length;
   return Math.sqrt(a.reduce((x,y)=>x+(y-m)*(y-m),0)/a.length);
 }
+
+function v10ScenarioWeights(){
+  const raw=model.scenarioWeights||{hold:0.25,pricewar:0.25,stronger:0.25,adverse:0.25};
+  const keys=['hold','pricewar','stronger','adverse'];
+  let total=keys.reduce((a,k)=>a+Math.max(0,Number(raw[k]||0)),0);
+  if(total<=0) total=4;
+  const out={};
+  keys.forEach(k=>out[k]=(Math.max(0,Number(raw[k]||0))||(total===4?1:0))/total);
+  // handle all-zero fallback cleanly
+  const sum=keys.reduce((a,k)=>a+out[k],0);
+  if(sum<=0) keys.forEach(k=>out[k]=0.25);
+  return out;
+}
+function v10WeightedStats(values,scenarios){
+  const w=v10ScenarioWeights();
+  let denom=0,mean=0;
+  values.forEach((v,i)=>{if(Number.isFinite(v)){const wi=w[scenarios[i]]||0;denom+=wi;mean+=wi*v;}});
+  if(denom<=0) return {mean:NaN,sd:NaN};
+  mean/=denom;
+  let variance=0;
+  values.forEach((v,i)=>{if(Number.isFinite(v)){const wi=(w[scenarios[i]]||0)/denom;variance+=wi*Math.pow(v-mean,2);}});
+  return {mean,sd:Math.sqrt(variance)};
+}
+
 function v09RunScenarioEnsemble(){
   const scenarios=['hold','pricewar','stronger','adverse'],labels={hold:'Hold',pricewar:'Price War',stronger:'Stronger',adverse:'Adverse'};
   const previous=model.competitorScenario||'hold',candidates=[],seen=new Set();
@@ -1676,9 +1712,10 @@ function v09RunScenarioEnsemble(){
       }
       const finite=npvs.filter(Number.isFinite);
       if(!finite.length)continue;
-      const mean=finite.reduce((a,b)=>a+b,0)/finite.length,worst=Math.min(...finite),best=Math.max(...finite),sd=v09Std(finite);
+      const stats=v10WeightedStats(npvs,scenarios);
+      const mean=stats.mean,worst=Math.min(...finite),best=Math.max(...finite),sd=stats.sd;
       const robust=mean-0.35*sd;
-      ranked.push({...c,npvs,mean,worst,best,sd,robust});
+      ranked.push({...c,npvs,mean,worst,best,sd,robust,weights:v10ScenarioWeights()});
     }
     ranked.sort((a,b)=>b.robust-a.robust);
     v09LastEnsemble=ranked;
@@ -1689,7 +1726,8 @@ function v09RunScenarioEnsemble(){
       save();hydrateForms();nav('decision');
     });
     if(ranked.length){text('#sensRobustLeader',ranked[0].source+' • '+E.money(ranked[0].robust));}
-    html('#ensembleStatus','Ranked <b>'+ranked.length+'</b> unique first-decision packages across all four rival scenarios. Robust score = mean NPV − 0.35 × NPV standard deviation.');
+    const w=v10ScenarioWeights();
+    html('#ensembleStatus','Ranked <b>'+ranked.length+'</b> unique first-decision packages. Weighted robust score = weighted mean NPV − 0.35 × weighted NPV standard deviation. Weights: Hold '+(w.hold*100).toFixed(0)+'%, Price War '+(w.pricewar*100).toFixed(0)+'%, Stronger '+(w.stronger*100).toFixed(0)+'%, Adverse '+(w.adverse*100).toFixed(0)+'%.');
     return ranked;
   } finally {
     model.competitorScenario=previous;
