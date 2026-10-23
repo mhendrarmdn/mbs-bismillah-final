@@ -142,14 +142,15 @@ function loginDiagnostics(html,loginUrl){
 }
 
 function resolveRole(form,wanted){
-  const target=String(wanted||'').trim().toLowerCase();
+  const raw=String(wanted||'').trim();
+  const target=raw.toLowerCase();
   if(target){
     const hit=(form.roleOptions||[]).find(o=>String(o.value).toLowerCase()===target || String(o.text).toLowerCase()===target);
-    return hit?hit.value:wanted;
+    if(hit) return hit.value;
   }
   const opts=(form.roleOptions||[]).filter(o=>o.value);
   if(opts.length===1) return opts[0].value;
-  if(target && /^[a-z][a-z0-9_-]*$/i.test(target)) return target.toLowerCase();
+  if(target && /^[a-z][a-z0-9_-]*$/i.test(target)) return target;
   return null;
 }
 function rawAfter(text,marker,from=0){
