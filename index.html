@@ -70,7 +70,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
       <button data-target="audit"><span class="ico">✓</span> Formula Audit</button>
       <button data-target="import"><span class="ico">⇩</span> HAR Import</button>
     </div>
-    <div class="side-note">v0.10 • competition cockpit + weighted robustness<br>Structural engine is based on verified Simulation 1 mechanics. Demand-response calibration is intentionally not guessed.</div>
+    <div class="side-note">v0.11 • faster search + printable team sheets<br>Structural engine is based on verified Simulation 1 mechanics. Demand-response calibration is intentionally not guessed.</div>
   </aside>
   <main class="main">
     <div class="topbar">
@@ -909,6 +909,7 @@ function hydrateForms(){
 }
 
 function readForms(){
+  if(typeof v11ClearEvalCache==='function') v11ClearEvalCache();
   model.appMode=$('#appMode').value||'practice';
   model.competitorScenario=$('#rollCompScenario')?.value||model.competitorScenario||'hold';
   model.scenarioWeights={
@@ -2557,6 +2558,9 @@ $('#compApplyRobust').onclick=()=>v10ApplyRobust();
 $('#compCopy').onclick=()=>{v10ApplyRobust();v06CopySubmission();v10RenderCompetition();};
 $('#compExport').onclick=()=>v10ExportPack();
 $('#exportSensitivity').onclick=()=>v10ExportSensitivity();
+$('#printDecisionSheet').onclick=()=>v11Print('decision');
+$('#printRoundBrief').onclick=()=>v11Print('brief');
+$$('[data-weight-preset]').forEach(b=>b.onclick=()=>v11WeightPreset(b.dataset.weightPreset));
 $('#downloadDecision').onclick=()=>v06DownloadDecision();
 $('#applyPredictedDemand').onclick=()=>{model.decision.expectedDemand=Math.round(v02PredictDemand(model.decision));save();hydrateForms();v02Render();};
 $('[data-apply-scenario]').forEach(b=>b.onclick=()=>v02ApplyScenario(b.dataset.applyScenario));
