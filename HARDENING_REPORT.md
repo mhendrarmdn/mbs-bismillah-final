@@ -1,4 +1,4 @@
-# MBS Decision Engine — Hardening Report v0.12
+# MBS Decision Engine — Hardening Report v0.13
 
 ## Scope
 
@@ -117,24 +117,85 @@ They are managed through current-game learning, scenario branching, robustness r
 
 R1 has special opening inventory initialization behavior. Historical state-transition validation begins at R2 for this reason.
 
+
+
+## Additional critical findings fixed in v0.13
+
+### Critical look-ahead leak
+`v03BehaviorModels(maxRound)` previously ignored `maxRound` inside its round loop. This meant Competition Mode could fit response models using future historical rows when replaying a full HAR.
+
+**Status: FIXED.**
+
+Regression check:
+- R1 same-game rows = 0
+- no R1 same-game demand model is active
+- current-game future rounds are not used for live fitting
+
+### Early competitor prior
+The original early competitor regression was too small to be treated causally and learned unstable coefficient directions. It is no longer used directly for early-round demand.
+
+The live fallback now combines:
+1. Simulation-1 absolute-demand prior
+2. bounded short-memory current-game demand correction
+3. directionally constrained competitor adjustment using relative price, quality gap and image gap
+
+### Competitor prior vs current-game snapshot
+Bundled Simulation-1 competitor aggregates are available for Practice mode and prior calibration.
+
+In **Competition Mode**, bundled competitor data does **not** satisfy the current-game readiness check. A current HAR with competitor rows must be imported before competitor readiness is considered present.
+
+## Current regression matrix
+
+- HTML duplicate IDs: none
+- Navigation targets without sections: none
+- Main JS syntax: PASS
+- Engine JS syntax: PASS
+- HAR worker syntax: PASS
+- Known single-dollar `$().forEach` misuse: none
+- Browser initialization smoke test: PASS
+- Four-round Rolling Optimizer smoke test: PASS
+- Scenario Ensemble runtime test: PASS
+- Price x Production heatmap runtime test: PASS
+- Marketing x R&D heatmap runtime test: PASS
+- Prepare Competition View full pipeline: PASS
+- Competition without current HAR: NOT READY / LOW by design
+- Competition with HAR-like competitor data: full 4-round pipeline PASS
+- Price War / Stronger / Adverse demand direction test: PASS
+
+## Current historical forecast limitations
+
+The accounting identities are materially tighter than the forecasting layer.
+
+R2-R8 structural backtest currently shows maximum absolute error of approximately:
+- Ending cash: $25,986
+- Ending equity: $25,984
+- Profit before tax: $49,885
+
+The largest PBT error was isolated primarily to future labor-unit-cost forecasting. v0.13 therefore includes live labor-scale learning and labor-cost uncertainty.
+
+A stricter R1-R4 walk-forward test using only pre-round information can show materially larger demand/profit errors because future competitor actions are genuinely unknown. In one historical replay, demand MAE was ~83k units. This is why R1-R2 confidence is intentionally capped and stress/ensemble outputs should be prioritized over point forecasts.
+
 ## Current readiness assessment
 
 ### Software/runtime readiness
-**PASS for competition rehearsal.**
+**PASS for competition rehearsal and controlled live use.**
 
-The major menu, optimizer, stress-test, sensitivity, competition-cockpit, snapshot/reconciliation, and export paths initialize and run without the runtime failures found during hardening.
+### Live model readiness
+**Conditional.** Before submission, import the current-game HAR and review the Competition Dashboard. If competitor rows are missing, the app will warn and cap confidence.
 
-### Model certainty
-**Mixed by design.**
+### What is verified vs calibrated
+Verified structural/accounting mechanics remain separated from calibrated demand, competitor behavior, raw-material-price and labor-cost forecasts.
 
-Verified accounting/structural formulas are separated from calibrated forecasting relationships. Recommendations should therefore be treated as decision support under uncertainty, not as a guaranteed reconstruction of hidden TopBoss demand/competitor functions.
+### Required rehearsal
+Before the real event, run at least one complete R1-R4 rehearsal:
+1. Competition Mode
+2. import latest HAR
+3. Prepare Competition View
+4. lock the chosen snapshot
+5. advance one round
+6. import new HAR
+7. reconcile forecast vs actual
+8. re-run optimizer
+9. repeat through R4
 
-### Recommended next action
-Run one complete rehearsal using the real historical HAR workflow:
-- start at R1
-- lock a decision snapshot
-- advance using historical results one round at a time
-- import/reconcile each round
-- record the recommendation changes and robustness metrics through R4
-
-This should be done before the actual competition.
+Do not treat a single projected NPV point estimate as a guarantee.
