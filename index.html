@@ -1319,21 +1319,45 @@ function v05LaborUnit(round,maxRound=Math.max(0,Number(model.currentRound||1)-1)
   return Math.max(0.5,fit.predict([Number(e.inflation_index||100)/100,Number(e.growth_index||100)/100,Number(e.season_index||100)/100]));
 }
 
+const V13_COMPETITOR_PRIOR={
+  demand:{beta:[568942.25,33121.875621876025,47133.860946619076,-32999.96941869468,16019.26944225395,33267.48050868036,-13630.217584857704],means:[0.016169554130447267,-0.03845016966029931,-0.12103101838893521,1.4387115812499998,49787.8125,9.7077625],sds:[0.02737056359222187,0.09811179088089807,0.1316587462474961,0.21824551141558107,63306.97008225505,2.8419684646574006],r2:0.8393960834908002,mae:34381.471836710065,residualSd:47840.434683297404,n:8},
+  quality:{beta:[0.4627392360566119,0.05203275887840678,0.06411299795915266,-0.026542598279347823,0.03838470961040795],means:[0.4056962725862114,12.341791836442736,11.991313461582878,0.5011894057169113],sds:[0.12268377377427511,0.31568607230525625,0.24786620240845253,0.10162655540848303],r2:0.9004725342202764,mae:0.03427021461881452,residualSd:0.04750512721933846,n:8},
+  image:{beta:[0.805534009289583,0.01869117336529314,0.06104599570153979,0.07282706226648605],means:[0.757520704615625,12.260747971870842,0.9265650276785186],sds:[0.12400622492910068,0.2696578129780615,0.17606603965586307],r2:0.8156477803978452,mae:0.04119483680844338,residualSd:0.0558146854575392,n:8},
+  conversion:{beta:[0.6794655734426035,-0.0037539191303991764,0.0006516062994913056,0.006819078786446162,0.0018366939667902897],means:[0.6785734887546443,12.341791836442736,11.991313461582878,1.141875],sds:[0.013502405871590153,0.31568607230525625,0.24786620240845253,0.06658922585523874],r2:0.6440904484035707,mae:0.005893975547105079,residualSd:0.008034555108794323,n:8}
+};
+function v13PriorFit(spec){
+  return {...spec,predict(x){
+    const z=[1,...x.map((v,j)=>(Number(v)-spec.means[j])/spec.sds[j])];
+    return z.reduce((a,v,j)=>a+v*spec.beta[j],0);
+  }};
+}
+function v13CompetitorPriorModels(){
+  return {
+    demand:v13PriorFit(V13_COMPETITOR_PRIOR.demand),
+    quality:v13PriorFit(V13_COMPETITOR_PRIOR.quality),
+    image:v13PriorFit(V13_COMPETITOR_PRIOR.image),
+    conversion:v13PriorFit(V13_COMPETITOR_PRIOR.conversion)
+  };
+}
+
 function v03PredictBehavior(state,decision,round,models=v03BehaviorModels()){
   const data=v03Dataset(), cs=v03CompStats(data,round,models.own), pi=v03Index(round);
   let quality=state.productQuality, image=state.productImage, conversion=state.conversion;
+  const priors=v13CompetitorPriorModels(), hasComp=Number(cs.count||0)>0 && Number(cs.price||0)>0;
   if(models.quality) quality=models.quality.predict([state.productQuality,Math.log1p(Number(decision.rd||0)),Math.log1p(Number(decision.maintenance||0)),cs.quality]);
+  else if(hasComp) quality=priors.quality.predict([state.productQuality,Math.log1p(Number(decision.rd||0)),Math.log1p(Number(decision.maintenance||0)),cs.quality]);
   if(models.image) image=models.image.predict([state.productImage,Math.log1p(Number(decision.marketing||0)),cs.image]);
+  else if(hasComp) image=priors.image.predict([state.productImage,Math.log1p(Number(decision.marketing||0)),cs.image]);
   if(models.conversion) conversion=models.conversion.predict([state.conversion,Math.log1p(Number(decision.rd||0)),Math.log1p(Number(decision.maintenance||0)),pi]);
-  else {
-    const priorConv=v05PriorConversionFit();
-    if(priorConv) conversion=priorConv.predict([state.conversion,Math.log1p(Number(decision.rd||0)),Math.log1p(Number(decision.maintenance||0)),pi]);
-  }
+  else conversion=priors.conversion.predict([state.conversion,Math.log1p(Number(decision.rd||0)),Math.log1p(Number(decision.maintenance||0)),pi]);
   quality=Math.min(2,Math.max(0.05,quality)); image=Math.min(2,Math.max(0.05,image)); conversion=Math.min(0.82,Math.max(0.55,conversion));
   let demand;
   if(models.demand){
     const relPrice=cs.price?(Number(decision.price||0)-cs.price)/cs.price:0;
     demand=models.demand.predict([relPrice,quality-cs.quality,image-cs.image,v03Macro(round),state.deferredDemand,Number(state.marketShare||0)]);
+  } else if(hasComp) {
+    const relPrice=(Number(decision.price||0)-cs.price)/cs.price;
+    demand=priors.demand.predict([relPrice,quality-cs.quality,image-cs.image,v03Macro(round),state.deferredDemand,Number(state.marketShare||0)]);
   } else {
     demand=v05PriorDemandPredict(state,decision,round);
   }
