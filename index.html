@@ -833,6 +833,325 @@ function v02Forecast(decision){
   return {demand,production,sales,endingFGI,endingRM,revenue,expenses,totalExpenses,pbt,tax,netProfit,actualDividend,endingEquity,ee,npv,cost:c,warnings};
 }
 
+
+/* v0.3 — competitor-aware response models + rolling multi-round state transition */
+let v03LastRollingResult=null;
+
+function v03Dataset(){ return model.imported || {environment:initialSample.environment,economy:initialSample.economy,operation:initialSample.operation,finance:initialSample.finance,rank:initialSample.rank,competitors:null}; }
+function v03North(data=v03Dataset()){ const x=data?.competitors?.north; if(!x) return null; return x; }
+function v03RoundRows(data,round){
+  const n=v03North(data); if(!n) return [];
+  return Array.isArray(n) ? (n[round]||[]) : (n[String(round)]||[]);
+}
+function v03OwnSalesRow(data,round,name){
+  if(!name) return null;
+  return v03RoundRows(data,round).find(x=>x.company_name===name)||null;
+}
+function v03InferOwnCompany(data=v03Dataset()){
+  const op=data?.operation||[], n=v03North(data); if(!n) return null;
+  const votes={};
+  for(let r=0;r<op.length;r++){
+    const rows=v03RoundRows(data,r), o=op[r]; if(!rows.length||!o) continue;
+    const p=Number(o.decision?.price), v=Number(o.sales?.volume);
+    let best=null,score=Infinity;
+    for(const row of rows){
+      const ps=Math.abs(Number(row.price)-p)*100000;
+      const vs=Math.abs(Number(row.volume)-v);
+      const sc=ps+vs;
+      if(sc<score){score=sc;best=row;}
+    }
+    if(best && score<2500) votes[best.company_name]=(votes[best.company_name]||0)+1;
+  }
+  return Object.entries(votes).sort((a,b)=>b[1]-a[1])[0]?.[0]||null;
+}
+function v03CompStats(data,round,ownName){
+  let rows=v03RoundRows(data,round);
+  if(!rows.length){
+    const n=v03North(data);
+    if(n){
+      const keys=Array.isArray(n)?n.map((_,i)=>i):Object.keys(n).map(Number);
+      const last=Math.max(...keys.filter(Number.isFinite));
+      rows=v03RoundRows(data,last);
+    }
+  }
+  const others=rows.filter(x=>x.company_name!==ownName);
+  const avg=k=>others.length?others.reduce((a,x)=>a+Number(x[k]||0),0)/others.length:0;
+  return {price:avg('price'),quality:avg('product_quality'),image:avg('product_image'),totalVolume:others.reduce((a,x)=>a+Number(x.volume||0),0),count:others.length};
+}
+function v03LinearFit(rows,lambda=1.5){
+  if(!rows?.length) return null;
+  const p=rows[0].x.length, means=[],sds=[];
+  for(let j=0;j<p;j++){
+    const vals=rows.map(r=>Number(r.x[j]||0)), m=vals.reduce((a,b)=>a+b,0)/vals.length;
+    const sd=Math.sqrt(vals.reduce((a,b)=>a+(b-m)*(b-m),0)/Math.max(1,vals.length-1))||1;
+    means.push(m);sds.push(sd);
+  }
+  const X=rows.map(r=>[1,...r.x.map((v,j)=>(Number(v)-means[j])/sds[j])]), k=p+1;
+  const A=Array.from({length:k},()=>Array(k).fill(0)), b=Array(k).fill(0);
+  for(let i=0;i<X.length;i++) for(let a=0;a<k;a++){
+    b[a]+=X[i][a]*Number(rows[i].y);
+    for(let c=0;c<k;c++) A[a][c]+=X[i][a]*X[i][c];
+  }
+  for(let j=1;j<k;j++) A[j][j]+=lambda;
+  const beta=v02Solve(A,b);
+  const predict=x=>{
+    const z=[1,...x.map((v,j)=>(Number(v)-means[j])/sds[j])];
+    return z.reduce((a,v,j)=>a+v*beta[j],0);
+  };
+  const preds=rows.map(r=>predict(r.x)), ybar=rows.reduce((a,r)=>a+Number(r.y),0)/rows.length;
+  const sse=rows.reduce((a,r,i)=>a+(Number(r.y)-preds[i])**2,0), sst=rows.reduce((a,r)=>a+(Number(r.y)-ybar)**2,0)||1;
+  const mae=rows.reduce((a,r,i)=>a+Math.abs(Number(r.y)-preds[i]),0)/rows.length;
+  return {beta,means,sds,predict,r2:1-sse/sst,mae,n:rows.length};
+}
+function v03BehaviorModels(){
+  const data=v03Dataset(), op=data.operation||[], own=v03InferOwnCompany(data);
+  if(!own || !v03North(data) || op.length<4) return {own,demand:null,quality:null,image:null,conversion:null};
+  const dRows=[],qRows=[],iRows=[],cRows=[];
+  for(let r=1;r<op.length;r++){
+    const row=v03OwnSalesRow(data,r,own), prev=v03OwnSalesRow(data,r-1,own), o=op[r], po=op[r-1];
+    if(!row||!prev||!o||!po) continue;
+    const cs=v03CompStats(data,r,own), prevShare=Number(prev.market_share||0);
+    const deferred=Math.max(0,Number(po.sales?.potential_demand||0)-Number(po.sales?.volume||0))*0.5;
+    const macro=v02Macro((data.economy||[])[r]);
+    dRows.push({x:[
+      cs.price? (Number(row.price)-cs.price)/cs.price : 0,
+      Number(row.product_quality)-cs.quality,
+      Number(row.product_image)-cs.image,
+      macro,deferred,prevShare
+    ],y:Number(o.sales?.potential_demand||0)});
+    qRows.push({x:[Number(prev.product_quality),Math.log1p(Number(o.decision?.rd||0)),Math.log1p(Number(o.decision?.maintenance||0)),cs.quality],y:Number(row.product_quality)});
+    iRows.push({x:[Number(prev.product_image),Math.log1p(Number(o.decision?.marketing||0)),cs.image],y:Number(row.product_image)});
+    const pi=Number((data.economy||[])[r]?.inflation_index||100)/100;
+    cRows.push({x:[Number(po.inventory?.efficiency||o.inventory?.efficiency||0.67),Math.log1p(Number(o.decision?.rd||0)),Math.log1p(Number(o.decision?.maintenance||0)),pi],y:Number(o.inventory?.efficiency||0.67)});
+  }
+  return {
+    own,
+    demand:v03LinearFit(dRows,2.5),
+    quality:v03LinearFit(qRows,1.5),
+    image:v03LinearFit(iRows,1.5),
+    conversion:v03LinearFit(cRows,1.8)
+  };
+}
+function v03Index(round){
+  const eco=v03Dataset().economy||[];
+  if(eco[round]?.inflation_index) return Number(eco[round].inflation_index)/100;
+  if(round===Number(model.currentRound)) return Number(model.currentPriceIndex||1);
+  if(round===Number(model.currentRound)+1) return Number(model.nextPriceIndex||model.currentPriceIndex||1);
+  const ratio=Number(model.nextPriceIndex||1)/Math.max(0.0001,Number(model.currentPriceIndex||1));
+  return Number(model.currentPriceIndex||1)*Math.pow(ratio,Math.max(0,round-Number(model.currentRound)));
+}
+function v03Macro(round){
+  const eco=v03Dataset().economy||[];
+  if(eco[round]) return v02Macro(eco[round]);
+  if(eco.length) return v02Macro(eco[eco.length-1]);
+  return 1;
+}
+function v03BaseState(){
+  const data=v03Dataset(), prior=Math.max(0,Number(model.currentRound)-1), fin=data.finance?.[String(prior)], op=data.operation?.[prior];
+  const models=v03BehaviorModels(), own=models.own, row=own?v03OwnSalesRow(data,prior,own):null;
+  const baseLabor=Number(fin?.income?.unit_labor_cost||v02CostCalibration().laborUnit||1.5);
+  const priorPI=Number(data.economy?.[prior]?.inflation_index||100)/100 || Number(model.currentPriceIndex||1);
+  const laborUnit=baseLabor*Number(model.currentPriceIndex||1)/Math.max(priorPI,0.0001);
+  return {
+    round:Number(model.currentRound),
+    cash:Number(model.state.cash||0),equity:Number(model.state.equity||0),
+    rawMaterial:Number(model.state.rawMaterial||0),rawMaterialUnitCost:Number(model.state.rawMaterialUnitCost||fin?.balance?.mat_unit_cost||1),
+    finishedGoods:Number(model.state.finishedGoods||0),finishedGoodsUnitCost:Number(model.state.finishedGoodsUnitCost||fin?.balance?.finished_goods_unit_cost||3),
+    equipmentBV:Number(model.state.equipmentBV||0),capacity:Number(model.state.capacity||0),replacementCost:Number(model.state.replacementCost||0),
+    conversion:Number(model.state.conversion||0.67),normalDebt:Number(model.state.normalDebt||0),abnormalDebt:Number(model.state.abnormalDebt||0),
+    productQuality:Number(model.state.productQuality||row?.product_quality||0.3),productImage:Number(model.state.productImage||row?.product_image||0.6),
+    marketShare:Number(model.state.marketShare||row?.market_share||0),materialPurchasePrice:Number(model.state.materialPurchasePrice||fin?.cash_flow?.mat_price||1),
+    laborUnit,deferredDemand:Math.max(0,Number(op?.sales?.potential_demand||0)-Number(op?.sales?.volume||0))*0.5,
+    dividends:[...(model.actualDividends||[])].slice(0,Math.max(0,Number(model.currentRound)-1)),
+    maxOverdraft:Number(model.state.abnormalDebt||0), path:[]
+  };
+}
+function v03PredictBehavior(state,decision,round,models=v03BehaviorModels()){
+  const data=v03Dataset(), cs=v03CompStats(data,round,models.own), pi=v03Index(round);
+  let quality=state.productQuality, image=state.productImage, conversion=state.conversion;
+  if(models.quality) quality=models.quality.predict([state.productQuality,Math.log1p(Number(decision.rd||0)),Math.log1p(Number(decision.maintenance||0)),cs.quality]);
+  if(models.image) image=models.image.predict([state.productImage,Math.log1p(Number(decision.marketing||0)),cs.image]);
+  if(models.conversion) conversion=models.conversion.predict([state.conversion,Math.log1p(Number(decision.rd||0)),Math.log1p(Number(decision.maintenance||0)),pi]);
+  quality=Math.min(2,Math.max(0.05,quality)); image=Math.min(2,Math.max(0.05,image)); conversion=Math.min(0.82,Math.max(0.55,conversion));
+  let demand;
+  if(models.demand){
+    const relPrice=cs.price?(Number(decision.price||0)-cs.price)/cs.price:0;
+    demand=models.demand.predict([relPrice,quality-cs.quality,image-cs.image,v03Macro(round),state.deferredDemand,Number(state.marketShare||0)]);
+  } else {
+    demand=v02PredictDemand({...decision,expectedDemand:decision.expectedDemand||0},round);
+  }
+  demand=Math.max(0,Math.min(1500000,demand));
+  return {quality,image,conversion,demand,competitor:cs};
+}
+function v03LaborCost(prod,cap,unit){
+  const n=Math.min(prod,cap), ot=Math.max(0,prod-cap);
+  return n*unit+ot*unit*1.5;
+}
+function v03Transition(state,decision,round,models=v03BehaviorModels()){
+  const pi=v03Index(round), nextPI=v03Index(round+1), behavior=v03PredictBehavior(state,decision,round,models);
+  const normalDebt=Number(state.normalDebt||0)+Number(state.abnormalDebt||0);
+  const maxProd=Math.min(1.5*Number(state.capacity||0),Number(state.rawMaterial||0)*behavior.conversion);
+  const production=Math.max(0,Math.min(Number(decision.production||0),maxProd));
+  const available=Number(state.finishedGoods||0)+production;
+  const sales=Math.max(0,Math.min(behavior.demand,available));
+  const endFG=Math.max(0,available-sales);
+  const rmUsed=behavior.conversion>0?production/behavior.conversion:0;
+  const rmBeforePurchase=Math.max(0,Number(state.rawMaterial||0)-rmUsed);
+  const procurement=Math.max(0,Number(decision.procurement||0));
+  const purchasePrice=Math.max(0.01,Number(state.materialPurchasePrice||1));
+  const endRM=rmBeforePurchase+procurement;
+  const endRMValue=rmBeforePurchase*Number(state.rawMaterialUnitCost||1)+procurement*purchasePrice;
+  const endRMUnit=endRM>0?endRMValue/endRM:Number(state.rawMaterialUnitCost||1);
+  let endFGUnit=3*pi, endFGValue=0;
+  if(endFG>0){
+    endFGUnit=(Number(state.finishedGoodsUnitCost||3)*Math.max(0,Number(state.finishedGoods||0)-sales)+3*production*pi)/endFG;
+    endFGValue=endFG*endFGUnit;
+  }
+  const revenue=sales*Number(decision.price||0);
+  const labor=v03LaborCost(production,Number(state.capacity||0),Number(state.laborUnit||1.5));
+  const material=rmUsed*Number(state.rawMaterialUnitCost||1);
+  const depreciation=E.depreciationAmount(state.equipmentBV,0.025);
+  const ordering=E.orderingCostEstimate(procurement,pi).estimated;
+  const equipmentFee=E.equipmentFee(decision.equipment);
+  const management=(150000+0.32*Number(state.capacity||0)+(production>Number(state.capacity||0)?50000:0))*pi;
+  const misc=(10000+0.18*Number(state.capacity||0))*pi;
+  const fgHold=endFGValue/6;
+  const rmHold=0.05*Number(state.rawMaterial||0)*Number(state.rawMaterialUnitCost||1);
+  const interest=normalDebt*(Number(model.environment.annual_interest_rate||0)/100)/4;
+  const pbt=revenue-labor-material-Number(decision.maintenance||0)-depreciation-ordering-equipmentFee-Number(decision.marketing||0)-Number(decision.rd||0)-management-misc-fgHold-rmHold-interest;
+  const tax=E.progressiveTax(pbt,model.environment.tax_rate||'Moderate',decision.equipment,String(model.environment.tax_deduction_investment||'No')==='Yes');
+  const netProfit=pbt-tax;
+  const actualDividend=E.actualDividend(decision.dividend,state.equity,model.equityFloor);
+  const cashExpense=labor+Number(decision.maintenance||0)+ordering+equipmentFee+Number(decision.marketing||0)+Number(decision.rd||0)+management+misc+fgHold+rmHold+interest;
+  const procurementCash=procurement*purchasePrice;
+  let cashEnd=Number(state.cash||0)+revenue-cashExpense-procurementCash-tax-Number(decision.equipment||0)-actualDividend;
+  let abnormalDebt=0;
+  if(cashEnd<0){ abnormalDebt=-cashEnd; cashEnd=0; }
+  const nextCapacity=E.nextCapacity(state.capacity,decision.equipment,pi).total;
+  const equipmentBV=E.nextBookValue(state.equipmentBV,decision.equipment,0.025);
+  const replacementCost=E.replacementCost(nextCapacity,nextPI);
+  const assets=cashEnd+endRMValue+endFGValue+equipmentBV;
+  const equity=assets-normalDebt-abnormalDebt;
+  const compTotal=behavior.competitor.totalVolume;
+  const marketShare=(sales+compTotal)>0?sales/(sales+compTotal)*100:Number(state.marketShare||0);
+  let nextPurchasePrice=purchasePrice*(nextPI/Math.max(pi,0.0001));
+  const data=v03Dataset(), known=data.finance?.[String(round)]?.cash_flow?.mat_price;
+  if(known!=null) nextPurchasePrice=Number(known);
+  const nextLaborUnit=Number(state.laborUnit||1.5)*(nextPI/Math.max(pi,0.0001));
+  const next={
+    round:round+1,cash:cashEnd,equity,rawMaterial:endRM,rawMaterialUnitCost:endRMUnit,
+    finishedGoods:endFG,finishedGoodsUnitCost:endFGUnit,equipmentBV,capacity:nextCapacity,replacementCost,
+    conversion:behavior.conversion,normalDebt,abnormalDebt,productQuality:behavior.quality,productImage:behavior.image,
+    marketShare,materialPurchasePrice:nextPurchasePrice,laborUnit:nextLaborUnit,
+    deferredDemand:Math.max(0,behavior.demand-sales)*0.5,
+    dividends:[...(state.dividends||[]),actualDividend],maxOverdraft:Math.max(Number(state.maxOverdraft||0),abnormalDebt),
+    path:[...(state.path||[]),{round,decision:{...decision},demand:behavior.demand,production,sales,netProfit,cashEnd,equity,abnormalDebt,conversion:behavior.conversion,quality:behavior.quality,image:behavior.image}]
+  };
+  return {state:next,metrics:{revenue,pbt,tax,netProfit,sales,demand:behavior.demand,production,actualDividend,cashEnd,equity,abnormalDebt,endFG,endRM}};
+}
+function v03SmartProcurement(state,behavior,production,round){
+  if(round>=Number(model.totalRounds)) return 0;
+  const rmUsed=behavior.conversion>0?production/behavior.conversion:0;
+  const noPurchase=Math.max(0,Number(state.rawMaterial||0)-rmUsed);
+  const growth=v03Macro(round)>0?v03Macro(round+1)/v03Macro(round):1;
+  const nextDemand=Math.max(0,behavior.demand*Math.max(0.92,Math.min(1.12,growth)));
+  const desired=nextDemand/Math.max(0.55,behavior.conversion)*1.04;
+  let need=Math.max(0,desired-noPurchase);
+  for(const t of [500000,1000000,1500000,2000000]){
+    if(need>t && need-t<30000) need=t;
+  }
+  return Math.round(need/1000)*1000;
+}
+function v03CandidateDecisions(state,round,models,controls){
+  const base=state.path.length?state.path[state.path.length-1].decision:model.decision;
+  const step=controls.range==='tight'?0.10:controls.range==='wide'?0.30:0.20;
+  const prices=[Number(base.price||6.5)-step,Number(base.price||6.5),Number(base.price||6.5)+step].map(x=>Math.max(3,Math.min(9,Math.round(x*100)/100)));
+  const mult=controls.range==='tight'?[0.9,1,1.1]:controls.range==='wide'?[0.6,1,1.4]:[0.75,1,1.25];
+  const maintMult=String(model.environment.maintenance_influence||'Low')==='Low'?[0.7,1.0]:[0.8,1.15];
+  const equipmentChoices=round===Number(model.totalRounds)?[0,50000]:[0,Math.max(100000,Math.round(Number(base.equipment||0)/50000)*50000)];
+  const out=[];
+  for(const price of prices) for(const ma of mult) for(const rr of mult) for(const mn of maintMult) for(const equipment of equipmentChoices){
+    const d={...base,price,marketing:Math.max(0,Math.round(Number(base.marketing||150000)*ma/5000)*5000),rd:Math.max(0,Math.round(Number(base.rd||150000)*rr/5000)*5000),maintenance:Math.max(0,Math.round(Number(base.maintenance||75000)*mn/5000)*5000),equipment};
+    const b=v03PredictBehavior(state,d,round,models);
+    d.production=Math.max(0,Math.round((b.demand*1.01-Number(state.finishedGoods||0))/1000)*1000);
+    const prod=Math.min(d.production,1.5*state.capacity,state.rawMaterial*b.conversion);
+    d.procurement=v03SmartProcurement(state,b,prod,round);
+    const maxDiv=Math.max(0,Number(state.equity||0)-Number(model.equityFloor||0));
+    const reserve=controls.risk==='cashsafe'?1500000:controls.risk==='npv'?500000:900000;
+    const safeDiv=Math.min(maxDiv,Math.max(0,Number(state.cash||0)-reserve));
+    for(const dividend of (round===Number(model.totalRounds)?[0]:[0,Math.round(safeDiv/50000)*50000])){
+      out.push({...d,dividend:Math.max(0,dividend)});
+    }
+  }
+  return out;
+}
+function v03PartialScore(state,round,controls){
+  const economic=Number(state.equity||0)-Number(state.equipmentBV||0)+Number(state.replacementCost||0);
+  const d=E.quarterlyFactor(model.environment.annual_interest_rate);
+  let pvDiv=0;(state.dividends||[]).forEach((x,i)=>pvDiv+=Number(x||0)/Math.pow(d,i+1));
+  let score=economic/Math.pow(d,round)+pvDiv;
+  const fgiPenalty=Number(state.finishedGoods||0)*Number(state.finishedGoodsUnitCost||3)*0.08;
+  const odPenalty=Number(state.abnormalDebt||0)*(controls.risk==='cashsafe'?2.0:controls.risk==='balanced'?1.4:1.0);
+  score-=fgiPenalty+odPenalty;
+  return score;
+}
+function v03TerminalValue(state){
+  const ee=E.economicEquity(state.equity,state.equipmentBV,state.replacementCost);
+  const npv=E.npv({annualRatePct:model.environment.annual_interest_rate,dividends:state.dividends,terminalEconomicEquity:ee,initialEquity:model.initialEquity});
+  return {ee,npv};
+}
+function v03RunRollingOptimizer(){
+  const controls={beam:Number($('#rollBeam').value||16),risk:$('#rollRisk').value||'balanced',range:$('#rollRange').value||'normal'};
+  const models=v03BehaviorModels();
+  let beam=[v03BaseState()];
+  const start=Number(model.currentRound), end=Number(model.totalRounds);
+  const totalCandidates={count:0};
+  for(let round=start;round<=end;round++){
+    const next=[];
+    for(const st of beam){
+      const cand=v03CandidateDecisions(st,round,models,controls);
+      totalCandidates.count+=cand.length;
+      for(const d of cand){
+        const tr=v03Transition(st,d,round,models), ns=tr.state;
+        if(!Number.isFinite(ns.equity)||ns.equity<=0) continue;
+        const score=round===end?v03TerminalValue(ns).npv.value:v03PartialScore(ns,round,controls);
+        next.push({state:ns,score});
+      }
+    }
+    next.sort((a,b)=>b.score-a.score);
+    beam=next.slice(0,controls.beam).map(x=>x.state);
+    if(!beam.length) break;
+  }
+  if(!beam.length) return null;
+  beam.sort((a,b)=>v03TerminalValue(b).npv.value-v03TerminalValue(a).npv.value);
+  const best=beam[0], terminal=v03TerminalValue(best);
+  return {best,terminal,models,candidates:totalCandidates.count,controls};
+}
+function v03RenderRollingDiagnostics(){
+  const m=v03BehaviorModels(), data=v03Dataset(), cs=v03CompStats(data,Math.max(0,Number(model.currentRound)-1),m.own);
+  text('#rollCompany',m.own||'HAR needed');
+  text('#rollDemandR2',m.demand?m.demand.r2.toFixed(3):'—');
+  text('#rollConvR2',m.conversion?m.conversion.r2.toFixed(3):'—');
+  text('#rollQualityR2',m.quality?m.quality.r2.toFixed(3):'—');
+  text('#rollImageR2',m.image?m.image.r2.toFixed(3):'—');
+  text('#rollDemandMAE',m.demand?E.num(m.demand.mae):'—');
+  text('#rollCompPrice',cs.price?E.money(cs.price):'—');
+  text('#rollRemaining',Math.max(0,Number(model.totalRounds)-Number(model.currentRound)+1));
+}
+function v03RenderRollingResult(res){
+  if(!res){html('#rollStatus','<b>No feasible path found.</b> Check state inputs, especially cash, raw materials, capacity and equity.');return;}
+  const st=res.best,t=res.terminal;
+  html('#rollStatus','Evaluated <b>'+E.num(res.candidates)+'</b> candidate decisions across the remaining horizon with beam width <b>'+res.controls.beam+'</b>. This is a calibrated forecast, not a published TopBoss optimum.');
+  html('#rollingPathBody',st.path.map(x=>'<tr><td>R'+x.round+'</td><td>'+E.money(x.decision.price)+'</td><td>'+E.num(x.production)+'</td><td>'+E.money(x.decision.marketing)+'</td><td>'+E.money(x.decision.rd)+'</td><td>'+E.num(x.decision.procurement)+'</td><td>'+E.money(x.decision.maintenance)+'</td><td>'+E.money(x.decision.equipment)+'</td><td>'+E.money(x.decision.dividend)+'</td><td>'+E.num(x.demand)+'</td><td>'+E.num(x.sales)+'</td><td>'+E.money(x.netProfit)+'</td><td>'+E.money(x.cashEnd)+'</td><td>'+E.money(x.equity)+'</td></tr>').join(''));
+  text('#rollNPV',E.money(t.npv.value));text('#rollEE',E.money(t.ee));text('#rollPVDiv',E.money(t.npv.pvDividends));text('#rollOverdraft',E.money(st.maxOverdraft||0));
+  $('#applyRollingFirst').disabled=!st.path.length;
+}
+function v03ApplyRollingFirst(){
+  const first=v03LastRollingResult?.best?.path?.[0]; if(!first)return;
+  model.decision={...model.decision,...first.decision,expectedDemand:Math.round(first.demand),production:Math.round(first.decision.production)};
+  save();hydrateForms();nav('decision');
+}
+
 function v03FinalCandidateSearch(){
   if(Number(model.currentRound)!==Number(model.totalRounds)){
     html('#finalSearchBody','<tr><td colspan="11" class="muted">Final-round search is disabled before the terminal round.</td></tr>');
@@ -1099,11 +1418,14 @@ $('#addActualDividend').onclick=()=>{
 
 restore(); hydrateForms();
 v02Render();
+try{v03RenderRollingDiagnostics();}catch(e){console.warn(e);}
 const _baseRender=render;
-render=function(){ _baseRender(); try{v02Render();}catch(e){console.warn('v0.2 render',e);} };
+render=function(){ _baseRender(); try{v02Render();}catch(e){console.warn('v0.2 render',e);} try{v03RenderRollingDiagnostics();}catch(e){console.warn('v0.3 diagnostics',e);} };
 $('#recalibrateDemand').onclick=()=>v02Render();
 $('#refreshScenarios').onclick=()=>v02Render();
 $('#runFinalSearch').onclick=()=>v03FinalCandidateSearch();
+$('#runRolling').onclick=()=>{html('#rollStatus','Running rolling search…');setTimeout(()=>{try{v03LastRollingResult=v03RunRollingOptimizer();v03RenderRollingResult(v03LastRollingResult);}catch(e){html('#rollStatus','<b>Search error:</b> '+e.message);console.error(e);}},20);};
+$('#applyRollingFirst').onclick=()=>v03ApplyRollingFirst();
 $('#applyPredictedDemand').onclick=()=>{model.decision.expectedDemand=Math.round(v02PredictDemand(model.decision));save();hydrateForms();v02Render();};
 $('[data-apply-scenario]').forEach(b=>b.onclick=()=>v02ApplyScenario(b.dataset.applyScenario));
 </script>
