@@ -1529,7 +1529,7 @@ async function v06CopySubmission(){
   catch(_){prompt('Copy these decisions:',t);}
 }
 function v06DownloadDecision(){
-  const payload={round:model.currentRound,totalRounds:model.totalRounds,mode:model.appMode,environment:model.environment,state:model.state,decision:model.decision,generatedAt:new Date().toISOString()};
+  const payload={round:model.currentRound,totalRounds:model.totalRounds,mode:model.appMode,environment:model.environment,state:model.state,decision:model.decision,calibration:model.calibration,lastReconciliation:model.lastReconciliation,generatedAt:new Date().toISOString()};
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='mbs-round-'+model.currentRound+'-decision.json';a.click();URL.revokeObjectURL(a.href);
 }
@@ -1923,9 +1923,17 @@ function importHar(file){
           if(current?.inflation_index) model.currentPriceIndex=Number(current.inflation_index)/100;
           if(next?.inflation_index) model.nextPriceIndex=Number(next.inflation_index)/100;
         }
+        v07EnsureLearningState();
+        const reconciliation=v07ReconcileImported(x,latest);
+        if(model.currentRound>latest && model.appMode==='competition'){
+          const knownNext=Number(f.cash_flow?.mat_price||0);
+          model.state.materialPurchasePrice=knownNext>0?knownNext:v07ForecastProcurementCashPrice(model.currentRound);
+        }
+        if(reconciliation) model.lastReconciliation=reconciliation;
       }
       save();hydrateForms();
-      text('#harStatus',`Parsed ${x.entryCount} network entries. Environment, finance, operation and ranking loaded.`);
+      const learned=model.lastReconciliation && Number(model.lastReconciliation.round)===latest;
+      text('#harStatus',`Parsed ${x.entryCount} network entries. Environment, finance, operation and ranking loaded.`+(learned?' Forecast vs actual for R'+latest+' reconciled; live corrections updated.':''));
       worker.terminate();
     }
   };
