@@ -1666,14 +1666,10 @@ function v09Std(a){
 function v10ScenarioWeights(){
   const raw=model.scenarioWeights||{hold:0.25,pricewar:0.25,stronger:0.25,adverse:0.25};
   const keys=['hold','pricewar','stronger','adverse'];
-  let total=keys.reduce((a,k)=>a+Math.max(0,Number(raw[k]||0)),0);
-  if(total<=0) total=4;
-  const out={};
-  keys.forEach(k=>out[k]=(Math.max(0,Number(raw[k]||0))||(total===4?1:0))/total);
-  // handle all-zero fallback cleanly
-  const sum=keys.reduce((a,k)=>a+out[k],0);
-  if(sum<=0) keys.forEach(k=>out[k]=0.25);
-  return out;
+  const vals=Object.fromEntries(keys.map(k=>[k,Math.max(0,Number(raw[k]||0))]));
+  const total=keys.reduce((a,k)=>a+vals[k],0);
+  if(total<=0) return {hold:0.25,pricewar:0.25,stronger:0.25,adverse:0.25};
+  return Object.fromEntries(keys.map(k=>[k,vals[k]/total]));
 }
 function v10WeightedStats(values,scenarios){
   const w=v10ScenarioWeights();
@@ -1684,6 +1680,141 @@ function v10WeightedStats(values,scenarios){
   let variance=0;
   values.forEach((v,i)=>{if(Number.isFinite(v)){const wi=(w[scenarios[i]]||0)/denom;variance+=wi*Math.pow(v-mean,2);}});
   return {mean,sd:Math.sqrt(variance)};
+}
+
+
+let v10LastStress=null;
+let v10PreparedDecision=null;
+
+function v10DominantScenario(){
+  const w=v10ScenarioWeights();
+  return Object.entries(w).sort((a,b)=>b[1]-a[1])[0]?.[0]||'hold';
+}
+function v10Recommended(){
+  if(v09LastEnsemble?.length) return {decision:{...v09LastEnsemble[0].decision},source:'Robust ensemble',ensemble:v09LastEnsemble[0]};
+  const first=v03LastRollingResult?.best?.path?.[0];
+  if(first) return {decision:{...first.decision},source:'Rolling optimizer',ensemble:null};
+  return {decision:{...model.decision},source:'Current Decision Lab',ensemble:null};
+}
+function v10Confidence(){
+  const h=v09LastPriceProdHeatmap,st=v10LastStress,e=v09LastEnsemble?.[0];
+  let score=0,parts=0;
+  if(h?.total){parts++;const r=h.near1/h.total;score+=r>=0.20?1:r>=0.08?0.55:0.15;}
+  if(st){parts++;score+=st.odProb<=0.10?1:st.odProb<=0.25?0.55:0.1;}
+  if(st){parts++;score+=st.p10>0?1:st.p10>-0.10*Math.max(1,Math.abs(st.p50))?0.45:0;}
+  if(e){parts++;score+=e.worst>0?1:e.worst>-0.15*Math.max(1,Math.abs(e.mean))?0.45:0;}
+  if(!parts)return {label:'NOT READY',score:0};
+  const ratio=score/parts;
+  return {label:ratio>=0.78?'HIGH':ratio>=0.50?'MEDIUM':'LOW',score:ratio};
+}
+function v10RiskFlags(decision){
+  const flags=[],state=v03BaseState(),models=v03BehaviorModels();
+  const conv=Math.max(0.01,Number(state.conversion||0.67));
+  if(Number(decision.production||0)>1.5*Number(state.capacity||0)) flags.push({level:'bad',text:'BLOCK: production exceeds modeled 150% overtime ceiling.'});
+  if(Number(decision.production||0)/conv>Number(state.rawMaterial||0)) flags.push({level:'bad',text:'BLOCK: modeled current RM availability may not cover production.'});
+  const div=E.actualDividend(decision.dividend,state.equity,model.equityFloor);
+  if(div<Number(decision.dividend||0)) flags.push({level:'warn',text:'Dividend is likely capped to '+E.money(div)+'.'});
+  if(Number(model.currentRound)===Number(model.totalRounds)&&Number(decision.procurement||0)>0) flags.push({level:'warn',text:'Final-round procurement is non-zero.'});
+  try{
+    const tr=v03Transition(state,decision,Number(model.currentRound),models);
+    if(Number(tr.metrics.abnormalDebt||0)>0) flags.push({level:'bad',text:'This first decision creates modeled overdraft of '+E.money(tr.metrics.abnormalDebt)+'.'});
+  }catch(_){}
+  if(v10LastStress?.p10<0) flags.push({level:'warn',text:'Stress-test P10 NPV is negative.'});
+  if(v10LastStress?.odProb>0.20) flags.push({level:'warn',text:'Stress-test overdraft probability exceeds 20%.'});
+  if(v09LastEnsemble?.[0]?.worst<0) flags.push({level:'warn',text:'Robust leader has negative NPV in at least one rival scenario.'});
+  if(v09LastPriceProdHeatmap?.total && v09LastPriceProdHeatmap.near1<=2) flags.push({level:'warn',text:'Price/production optimum is narrow: only '+v09LastPriceProdHeatmap.near1+' of '+v09LastPriceProdHeatmap.total+' cells are within 1% of local max.'});
+  if(!flags.length) flags.push({level:'ok',text:'No structural block detected. Forecast uncertainty still applies.'});
+  return flags;
+}
+function v10RenderCompetition(){
+  const rec=v10Recommended(),d=rec.decision,w=v10ScenarioWeights(),conf=v10Confidence();
+  text('#compRound',model.currentRound+' / '+model.totalRounds);
+  text('#compMode',model.appMode==='competition'?'Competition • live-safe':'WARNING: switch to Competition mode');
+  text('#compDecisionSource',rec.source);
+  $('#compDecisionSource').className='badge '+(rec.source==='Robust ensemble'?'ok':'info');
+  text('#compPrice',E.money(d.price));text('#compProduction',E.num(d.production));
+  text('#compMarketing',E.money(d.marketing));text('#compRD',E.money(d.rd));
+  text('#compProcurement',E.num(d.procurement));text('#compMaintenance',E.money(d.maintenance));
+  text('#compEquipment',E.money(d.equipment));text('#compDividend',E.money(d.dividend));
+
+  const rollingNPV=v03LastRollingResult?.terminal?.npv?.value;
+  text('#compNPV',Number.isFinite(rollingNPV)?E.money(rollingNPV):'—');
+  text('#compOverdraft',v03LastRollingResult?E.money(v03LastRollingResult.best?.maxOverdraft||0):'—');
+  const leader=v09LastEnsemble?.[0];
+  text('#compWorstNPV',leader?E.money(leader.worst):'—');
+  text('#compRobustScore',leader?E.money(leader.robust):'—');
+
+  text('#compP10',v10LastStress?E.money(v10LastStress.p10):'—');
+  text('#compP50',v10LastStress?E.money(v10LastStress.p50):'—');
+  text('#compP90',v10LastStress?E.money(v10LastStress.p90):'—');
+  text('#compODProb',v10LastStress?(v10LastStress.odProb*100).toFixed(1)+'%':'—');
+  const h=v09LastPriceProdHeatmap;
+  text('#compBreadth1',h?.total?h.near1+' / '+h.total:'—');
+  text('#compBreadth3',h?.total?h.near3+' / '+h.total:'—');
+  text('#compConfidence',conf.label);
+  const cc=$('#compConfidence');if(cc)cc.style.fontWeight='900';
+
+  setv('#weightHold',model.scenarioWeights?.hold??0.25);setv('#weightPricewar',model.scenarioWeights?.pricewar??0.25);
+  setv('#weightStronger',model.scenarioWeights?.stronger??0.25);setv('#weightAdverse',model.scenarioWeights?.adverse??0.25);
+  html('#compWeightSummary','Normalized: Hold '+(w.hold*100).toFixed(0)+'% • Price War '+(w.pricewar*100).toFixed(0)+'% • Stronger '+(w.stronger*100).toFixed(0)+'% • Adverse '+(w.adverse*100).toFixed(0)+'%.');
+
+  text('#compDemandCorrection',Number(model.calibration?.demandScale||1).toFixed(3)+'×');
+  text('#compConversionBias',(Number(model.calibration?.conversionBias||0)>=0?'+':'')+Number(model.calibration?.conversionBias||0).toFixed(4));
+  text('#compRMScale',Number(model.calibration?.rawPriceScale||1).toFixed(3)+'×');
+
+  const flags=v10RiskFlags(d);
+  html('#compWarnings',flags.map(x=>'• '+x.text).join('<br>'));
+  const blocks=flags.filter(x=>x.level==='bad').length,warns=flags.filter(x=>x.level==='warn').length;
+  html('#compReadiness',blocks?'<b>NOT READY:</b> '+blocks+' blocking issue(s) and '+warns+' warning(s).':warns?'<b>REVIEW:</b> no hard block, but '+warns+' warning(s) remain.':'<b>READY:</b> no structural block or active robustness warning detected.');
+}
+function v10ApplyRobust(){
+  const rec=v10Recommended(),d={...rec.decision};
+  const state=v03BaseState(),b=v03PredictBehavior(state,d,Number(model.currentRound),v03BehaviorModels());
+  model.decision={...model.decision,...d,expectedDemand:Math.round(b.demand)};
+  save();hydrateForms();v10RenderCompetition();
+}
+function v10PrepareCompetition(){
+  model.appMode='competition';
+  const originalScenario=model.competitorScenario||'hold';
+  v03LastRollingResult=v03RunRollingOptimizer();
+  v09RunScenarioEnsemble();
+  const leader=v09LastEnsemble?.[0];
+  if(leader){
+    const dominant=v10DominantScenario();
+    model.competitorScenario=dominant;
+    const path=v09EvaluateFixedFirst(leader.decision,8);
+    if(path) v03LastRollingResult={...path,models:v03BehaviorModels(),controls:{beam:8,risk:$('#rollRisk')?.value||'balanced',range:'tight'}};
+  }
+  v10LastStress=v04StressBestPath(220);
+  v09RunPriceProductionHeatmap();
+  model.competitorScenario=originalScenario;
+  v10PreparedDecision=v10Recommended().decision;
+  save();hydrateForms();
+  v04RenderStress(v10LastStress);
+  v03RenderRollingResult(v03LastRollingResult);
+  v10RenderCompetition();
+  nav('competition');
+}
+function v10ExportPack(){
+  const rec=v10Recommended();
+  const pack={
+    generatedAt:new Date().toISOString(),version:'v0.10',round:model.currentRound,totalRounds:model.totalRounds,
+    mode:model.appMode,source:model.source,environment:model.environment,state:model.state,
+    scenarioWeights:v10ScenarioWeights(),recommended:{source:rec.source,decision:rec.decision},
+    rolling:v03LastRollingResult?{terminalNPV:v03LastRollingResult.terminal?.npv?.value,path:v03LastRollingResult.best?.path}:null,
+    stress:v10LastStress?{p10:v10LastStress.p10,p50:v10LastStress.p50,p90:v10LastStress.p90,odProb:v10LastStress.odProb,positiveProb:v10LastStress.positiveProb}:null,
+    priceProductionHeatmap:v09LastPriceProdHeatmap,
+    supportHeatmap:v09LastSupportHeatmap,
+    ensemble:v09LastEnsemble,
+    calibration:model.calibration,lastReconciliation:model.lastReconciliation
+  };
+  const blob=new Blob([JSON.stringify(pack,null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='mbs-competition-pack-r'+model.currentRound+'.json';a.click();URL.revokeObjectURL(a.href);
+}
+function v10ExportSensitivity(){
+  const data={generatedAt:new Date().toISOString(),round:model.currentRound,scenarioWeights:v10ScenarioWeights(),priceProduction:v09LastPriceProdHeatmap,support:v09LastSupportHeatmap,ensemble:v09LastEnsemble};
+  const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='mbs-sensitivity-r'+model.currentRound+'.json';a.click();URL.revokeObjectURL(a.href);
 }
 
 function v09RunScenarioEnsemble(){
