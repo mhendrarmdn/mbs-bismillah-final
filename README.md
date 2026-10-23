@@ -1,4 +1,4 @@
-# MBS Decision & NPV Engine — v0.4
+# MBS Decision & NPV Engine — v0.5
 
 A local-first decision workspace for the 2026 MBS E-Case Competition.
 
@@ -40,6 +40,10 @@ A local-first decision workspace for the 2026 MBS E-Case Competition.
 - Monte Carlo-style uncertainty stress test for the best rolling path
 - NPV P10 / median / P90 and overdraft probability
 - Automatic explanation of why the optimizer prefers its first decision
+- Live-safe walk-forward calibration cutoff (no same-game future-round training)
+- Simulation-1 prior-assisted demand/conversion model for early competition rounds
+- Current-game scaling of the prior as soon as actual demand is observed
+- Labor-unit-cost forecast from inflation, growth and season indices
 - Deferred unmet-demand feature (50% carryover) in the empirical demand model
 - Verified single-shift management-expense and miscellaneous-expense formulas
 - One-click application of scenario packages back to the Decision Lab
@@ -75,4 +79,4 @@ The app separates three classes of logic:
 See `MODEL_VALIDATION.md`. Verified accounting mechanics are separated from calibrated forecast relationships. v0.4 computes historical forecast error in the app rather than claiming a universal accuracy figure.
 
 ## Next build target
-v0.5: stronger labor/raw-material price forecasting, walk-forward calibration without retrospective leakage, and an optional competition mode that freezes only information available at each live round.
+v0.6: raw-material-price uncertainty model, explicit competition/practice mode switch, deploy-health indicator, and optional decision export/checklist for team submission.
