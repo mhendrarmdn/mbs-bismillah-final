@@ -1,4 +1,4 @@
-# MBS Decision & NPV Engine — v0.8
+# MBS Decision & NPV Engine — v0.9
 
 A local-first decision workspace for the 2026 MBS E-Case Competition.
 
@@ -56,6 +56,12 @@ A local-first decision workspace for the 2026 MBS E-Case Competition.
 - Before-vs-after learning optimizer impact comparison
 - Automatic Round Journal for submission locks and post-round reconciliation
 - Journal JSON export for team audit
+- Sensitivity Lab with Price × Production and Marketing × R&D heatmaps
+- Heatmap breadth metrics: cells within 1% / 3% of local maximum
+- Continuation-aware sensitivity: first decision fixed, remaining rounds re-optimized
+- Scenario-ensemble ranking across Hold / Price War / Stronger / Adverse rival assumptions
+- Robust score = mean NPV − 0.35 × NPV standard deviation
+- One-click apply of robust ensemble leader/candidates back to Decision Lab
 - Deferred unmet-demand feature (50% carryover) in the empirical demand model
 - Verified single-shift management-expense and miscellaneous-expense formulas
 - One-click application of scenario packages back to the Decision Lab
@@ -91,4 +97,4 @@ The app separates three classes of logic:
 See `MODEL_VALIDATION.md`. Verified accounting mechanics are separated from calibrated forecast relationships. v0.4 computes historical forecast error in the app rather than claiming a universal accuracy figure.
 
 ## Next build target
-v0.9: decision sensitivity heatmaps, scenario ensemble ranking across rival assumptions, and a dedicated competition dashboard that surfaces only the information needed in the 5–10 minutes before submission.
+v0.10: compact competition-only dashboard, sensitivity export, and optional weighted rival-scenario probabilities so robust ranking can reflect the team's beliefs rather than equal scenario weights.
