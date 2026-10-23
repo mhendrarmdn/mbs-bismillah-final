@@ -750,7 +750,7 @@ function v02Macro(e){
 function v02DemandFit(lambda=0.8){
   const d=v02Dataset(), op=d.operation||[], eco=d.economy||[];
   const rows=[];
-  for(let r=1;r<op.length;r++){
+  for(let r=1;r<op.length && r<=maxRound;r++){
     const o=op[r], dec=o?.decision, y=Number(o?.sales?.potential_demand);
     if(!dec || !Number.isFinite(y) || y<=0) continue;
     rows.push({
@@ -972,7 +972,7 @@ function v03LinearFit(rows,lambda=1.5){
   const residualSd=Math.sqrt(sse/Math.max(1,rows.length-1));
   return {beta,means,sds,predict,r2:1-sse/sst,mae,rmse,residualSd,n:rows.length};
 }
-function v03BehaviorModels(){
+function v03BehaviorModels(maxRound=Math.max(0,Number(model.currentRound||1)-1)){
   const data=v03Dataset(), op=data.operation||[], own=v03InferOwnCompany(data);
   if(!own || !v03North(data) || op.length<4) return {own,demand:null,quality:null,image:null,conversion:null};
   const dRows=[],qRows=[],iRows=[],cRows=[];
@@ -994,11 +994,12 @@ function v03BehaviorModels(){
     cRows.push({x:[Number(po.inventory?.efficiency||o.inventory?.efficiency||0.67),Math.log1p(Number(o.decision?.rd||0)),Math.log1p(Number(o.decision?.maintenance||0)),pi],y:Number(o.inventory?.efficiency||0.67)});
   }
   return {
-    own,
-    demand:v03LinearFit(dRows,2.5),
-    quality:v03LinearFit(qRows,1.5),
-    image:v03LinearFit(iRows,1.5),
-    conversion:v03LinearFit(cRows,1.8)
+    own,maxRound,
+    demand:dRows.length>=4?v03LinearFit(dRows,2.5):null,
+    quality:qRows.length>=3?v03LinearFit(qRows,1.5):null,
+    image:iRows.length>=3?v03LinearFit(iRows,1.5):null,
+    conversion:cRows.length>=3?v03LinearFit(cRows,1.8):null,
+    rows:{demand:dRows.length,quality:qRows.length,image:iRows.length,conversion:cRows.length}
   };
 }
 function v03Index(round){
@@ -1030,24 +1031,78 @@ function v03BaseState(){
     conversion:Number(model.state.conversion||0.67),normalDebt:Number(model.state.normalDebt||0),abnormalDebt:Number(model.state.abnormalDebt||0),
     productQuality:Number(model.state.productQuality||row?.product_quality||0.3),productImage:Number(model.state.productImage||row?.product_image||0.6),
     marketShare:Number(model.state.marketShare||row?.market_share||0),materialPurchasePrice:Number(model.state.materialPurchasePrice||fin?.cash_flow?.mat_price||1),
-    laborUnit,deferredDemand:Math.max(0,Number(op?.sales?.potential_demand||0)-Number(op?.sales?.volume||0))*0.5,
+    laborUnit:v05LaborUnit(Number(model.currentRound)),deferredDemand:Math.max(0,Number(op?.sales?.potential_demand||0)-Number(op?.sales?.volume||0))*0.5,
     dividends:[...(model.actualDividends||[])].slice(0,Math.max(0,Number(model.currentRound)-1)),
     maxOverdraft:Number(model.state.abnormalDebt||0), path:[]
   };
 }
+
+function v05PriorDemandFit(){
+  const op=initialSample.operation||[], eco=initialSample.economy||[], rows=[];
+  for(let r=1;r<op.length;r++){
+    const o=op[r], p=op[r-1]; if(!o?.decision||!p)continue;
+    const deferred=Math.max(0,Number(p.sales?.potential_demand||0)-Number(p.sales?.volume||0))*0.5;
+    rows.push({x:[Number(o.decision.price||0),Math.log1p(Number(o.decision.marketing||0)),Math.log1p(Number(o.decision.rd||0)),v02Macro(eco[r]),deferred],y:Number(o.sales?.potential_demand||0)});
+  }
+  return rows.length>=4?v03LinearFit(rows,1.5):null;
+}
+function v05PriorDemandPredict(state,decision,round){
+  const fit=v05PriorDemandFit(); if(!fit)return Number(decision.expectedDemand||0);
+  const data=v03Dataset(), eco=data.economy||[], op=data.operation||[];
+  const macro=eco[round]?v02Macro(eco[round]):v03Macro(round);
+  const x=[Number(decision.price||0),Math.log1p(Number(decision.marketing||0)),Math.log1p(Number(decision.rd||0)),macro,Number(state.deferredDemand||0)];
+  let pred=Math.max(0,fit.predict(x));
+  const completed=Math.max(0,Math.min(round-1,op.length-1));
+  if(model.imported && completed>=1 && op[completed]?.decision){
+    const last=op[completed], prev=op[Math.max(0,completed-1)];
+    const def=Math.max(0,Number(prev?.sales?.potential_demand||0)-Number(prev?.sales?.volume||0))*0.5;
+    const lx=[Number(last.decision.price||0),Math.log1p(Number(last.decision.marketing||0)),Math.log1p(Number(last.decision.rd||0)),eco[completed]?v02Macro(eco[completed]):v03Macro(completed),def];
+    const priorAtLast=Math.max(1,fit.predict(lx));
+    const scale=Math.max(0.6,Math.min(1.6,Number(last.sales?.potential_demand||priorAtLast)/priorAtLast));
+    pred*=scale;
+  }
+  return pred;
+}
+function v05PriorConversionFit(){
+  const op=initialSample.operation||[], eco=initialSample.economy||[], rows=[];
+  for(let r=1;r<op.length;r++){
+    rows.push({x:[Number(op[r-1]?.inventory?.efficiency||0.67),Math.log1p(Number(op[r]?.decision?.rd||0)),Math.log1p(Number(op[r]?.decision?.maintenance||0)),Number(eco[r]?.inflation_index||100)/100],y:Number(op[r]?.inventory?.efficiency||0.67)});
+  }
+  return rows.length>=4?v03LinearFit(rows,1.3):null;
+}
+function v05LaborFit(data=v03Dataset(),maxRound=Math.max(0,Number(model.currentRound||1)-1)){
+  const fin=data.finance||{}, eco=data.economy||[], rows=[];
+  for(let r=1;r<=maxRound;r++){
+    const f=fin[String(r)], e=eco[r]; if(!f||!e)continue;
+    rows.push({x:[Number(e.inflation_index||100)/100,Number(e.growth_index||100)/100,Number(e.season_index||100)/100],y:Number(f.income?.unit_labor_cost||0)});
+  }
+  if(rows.length<4 && data!==initialSample) return v05LaborFit(initialSample,Math.max(1,(initialSample.economy||[]).length-1));
+  return rows.length>=4?v03LinearFit(rows,0.8):null;
+}
+function v05LaborUnit(round,maxRound=Math.max(0,Number(model.currentRound||1)-1)){
+  const data=v03Dataset(), fit=v05LaborFit(data,maxRound), eco=data.economy||[];
+  if(!fit) return Number(v02CostCalibration().laborUnit||1.5);
+  const e=eco[round]||eco[eco.length-1]||{};
+  return Math.max(0.5,fit.predict([Number(e.inflation_index||100)/100,Number(e.growth_index||100)/100,Number(e.season_index||100)/100]));
+}
+
 function v03PredictBehavior(state,decision,round,models=v03BehaviorModels()){
   const data=v03Dataset(), cs=v03CompStats(data,round,models.own), pi=v03Index(round);
   let quality=state.productQuality, image=state.productImage, conversion=state.conversion;
   if(models.quality) quality=models.quality.predict([state.productQuality,Math.log1p(Number(decision.rd||0)),Math.log1p(Number(decision.maintenance||0)),cs.quality]);
   if(models.image) image=models.image.predict([state.productImage,Math.log1p(Number(decision.marketing||0)),cs.image]);
   if(models.conversion) conversion=models.conversion.predict([state.conversion,Math.log1p(Number(decision.rd||0)),Math.log1p(Number(decision.maintenance||0)),pi]);
+  else {
+    const priorConv=v05PriorConversionFit();
+    if(priorConv) conversion=priorConv.predict([state.conversion,Math.log1p(Number(decision.rd||0)),Math.log1p(Number(decision.maintenance||0)),pi]);
+  }
   quality=Math.min(2,Math.max(0.05,quality)); image=Math.min(2,Math.max(0.05,image)); conversion=Math.min(0.82,Math.max(0.55,conversion));
   let demand;
   if(models.demand){
     const relPrice=cs.price?(Number(decision.price||0)-cs.price)/cs.price:0;
     demand=models.demand.predict([relPrice,quality-cs.quality,image-cs.image,v03Macro(round),state.deferredDemand,Number(state.marketShare||0)]);
   } else {
-    demand=v02PredictDemand({...decision,expectedDemand:decision.expectedDemand||0},round);
+    demand=v05PriorDemandPredict(state,decision,round);
   }
   demand=Math.max(0,Math.min(1500000,demand));
   return {quality,image,conversion,demand,competitor:cs};
@@ -1116,7 +1171,7 @@ function v03Transition(state,decision,round,models=v03BehaviorModels(),shock=nul
   let nextPurchasePrice=purchasePrice*(nextPI/Math.max(pi,0.0001));
   const data=v03Dataset(), known=data.finance?.[String(round)]?.cash_flow?.mat_price;
   if(known!=null) nextPurchasePrice=Number(known);
-  const nextLaborUnit=Number(state.laborUnit||1.5)*(nextPI/Math.max(pi,0.0001));
+  const nextLaborUnit=v05LaborUnit(round+1,Math.max(0,Number(model.currentRound||1)-1));
   const next={
     round:round+1,cash:cashEnd,equity,rawMaterial:endRM,rawMaterialUnitCost:endRMUnit,
     finishedGoods:endFG,finishedGoodsUnitCost:endFGUnit,equipmentBV,capacity:nextCapacity,replacementCost,
@@ -1216,6 +1271,8 @@ function v03RenderRollingDiagnostics(){
   text('#rollDemandMAE',m.demand?E.num(m.demand.mae):'—');
   text('#rollCompPrice',cs.price?E.money(cs.price):'—');
   text('#rollRemaining',Math.max(0,Number(model.totalRounds)-Number(model.currentRound)+1));
+  const source=m.demand?'Current-game calibrated':'Simulation-1 prior assisted';
+  const el=$('#rollStatus'); if(el && !v03LastRollingResult) el.innerHTML='<b>'+source+'.</b> Current-game demand rows: '+(m.rows?.demand||0)+'. Run the search when ready.';
 }
 function v03RenderRollingResult(res){
   if(!res){html('#rollStatus','<b>No feasible path found.</b> Check state inputs, especially cash, raw materials, capacity and equity.');return;}
@@ -1261,7 +1318,7 @@ function v04HistoricalStartState(round){
     productQuality:Number(row?.product_quality||0.3),productImage:Number(row?.product_image||0.6),
     marketShare:Number(row?.market_share||0),
     materialPurchasePrice:Number(pf.cash_flow?.mat_price||1),
-    laborUnit:Number(pf.income?.unit_labor_cost||1.5)*(piNow/Math.max(piPrev,0.0001)),
+    laborUnit:v05LaborUnit(round,round-1),
     deferredDemand:Math.max(0,Number(po.sales?.potential_demand||0)-Number(po.sales?.volume||0))*0.5,
     dividends:Object.keys(fin).map(Number).filter(r=>r>=1&&r<round).sort((a,b)=>a-b).map(r=>Number(fin[String(r)]?.cash_flow?.stock_dividend_issue||0)),
     maxOverdraft:Number(pf.balance?.abnormal_debt||0),path:[]
@@ -1277,10 +1334,11 @@ function v04ActualDecision(round){
   };
 }
 function v04EngineBacktest(){
-  const data=v03Dataset(), op=data.operation||[], fin=data.finance||{}, models=v03BehaviorModels(), rows=[];
+  const data=v03Dataset(), op=data.operation||[], fin=data.finance||{}, rows=[];
   for(let r=2;r<op.length;r++){
     const st=v04HistoricalStartState(r), dec=v04ActualDecision(r), af=fin[String(r)], ao=op[r];
     if(!st||!dec||!af||!ao) continue;
+    const models=v03BehaviorModels(r-1);
     const pred=v03PredictBehavior(st,dec,r,models);
     const shock={
       demandDelta:Number(ao.sales?.potential_demand||0)-pred.demand,
