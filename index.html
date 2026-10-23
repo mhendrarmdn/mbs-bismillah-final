@@ -24,7 +24,7 @@ button,input,select{font:inherit}
 .metric{padding:16px}.metric .label{color:var(--muted);font-size:12px}.metric .value{font-size:25px;font-weight:800;margin-top:7px}.metric .foot{font-size:11px;color:var(--muted);margin-top:6px}
 .badge{display:inline-flex;align-items:center;gap:6px;padding:4px 8px;border-radius:999px;font-size:11px;font-weight:700}.ok{background:#e8f7ee;color:var(--green)}.warn{background:#fff3e7;color:var(--orange)}.bad{background:#feeceb;color:var(--red)}.info{background:#eaf1fb;color:#245b95}
 .section{display:none}.section.active{display:block}
-.form-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.field label{display:block;font-size:11px;color:var(--muted);margin-bottom:5px}.field input,.field select{width:100%;border:1px solid var(--line);border-radius:9px;padding:9px 10px;background:white;color:var(--text)}.field input:focus,.field select:focus{outline:2px solid #c8d9ef;border-color:#7ca4d0}
+.form-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.field label{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;color:var(--muted);margin-bottom:5px}.unit-tag{display:inline-flex;align-items:center;padding:2px 6px;border-radius:999px;background:#eaf1f8;color:#42617f;font-size:9px;font-weight:750;letter-spacing:.02em;white-space:nowrap}.unit-preview{margin-top:5px;font-size:10px;color:#61758c;min-height:14px;font-variant-numeric:tabular-nums}.metric-unit{font-size:9px;color:#71849a;font-weight:750;margin-left:4px;white-space:nowrap}.field input,.field select{width:100%;border:1px solid var(--line);border-radius:9px;padding:9px 10px;background:white;color:var(--text)}.field input:focus,.field select:focus{outline:2px solid #c8d9ef;border-color:#7ca4d0}
 hr{border:0;border-top:1px solid var(--line);margin:18px 0}.callout{padding:13px 14px;border-radius:12px;background:#f1f6fc;border-left:4px solid var(--blue);font-size:13px;line-height:1.55}.callout.gold{background:#fff8df;border-left-color:var(--gold)}
 table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;padding:10px 8px;border-bottom:1px solid var(--line);white-space:nowrap}th:first-child,td:first-child{text-align:left}th{color:var(--muted);font-weight:650}.scroll{overflow:auto}
 .risk{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line)}.risk:last-child{border:0}.dot{width:9px;height:9px;border-radius:50%;margin-top:5px;background:#94a3b8}.dot.green{background:#22c55e}.dot.orange{background:#f59e0b}.dot.red{background:#ef4444}.risk b{font-size:12px}.risk p{margin:2px 0 0;color:var(--muted);font-size:11px;line-height:1.4}
@@ -261,33 +261,33 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
       <div class="grid g2">
         <div class="card"><h3>Eight management decisions</h3>
           <div class="form-grid">
-            <div class="field"><label>Price</label><input id="price" type="number" step=".01"></div>
-            <div class="field"><label>Production request</label><input id="production" type="number"></div>
-            <div class="field"><label>Expected demand</label><input id="expectedDemand" type="number"></div>
-            <div class="field"><label>Marketing</label><input id="marketing" type="number"></div>
-            <div class="field"><label>R&D</label><input id="rd" type="number"></div>
-            <div class="field"><label>Procurement quantity</label><input id="procurement" type="number"></div>
-            <div class="field"><label>Maintenance</label><input id="maintenance" type="number"></div>
-            <div class="field"><label>Equipment investment</label><input id="equipment" type="number"></div>
-            <div class="field"><label>Proposed dividend</label><input id="dividend" type="number"></div>
-            <div class="field"><label>Projected ending equity</label><input id="projectedEndingEquity" type="number"></div>
+            <div class="field"><label><span>Price</span><span class="unit-tag">USD / finished unit</span></label><input id="price" type="number" step=".01"><div class="unit-preview" id="uPrice">—</div></div>
+            <div class="field"><label><span>Production request</span><span class="unit-tag">finished units</span></label><input id="production" type="number"><div class="unit-preview" id="uProduction">—</div></div>
+            <div class="field"><label><span>Expected demand</span><span class="unit-tag">finished units</span></label><input id="expectedDemand" type="number"><div class="unit-preview" id="uDemand">—</div></div>
+            <div class="field"><label><span>Marketing</span><span class="unit-tag">USD spend</span></label><input id="marketing" type="number"><div class="unit-preview" id="uMarketing">—</div></div>
+            <div class="field"><label><span>R&D</span><span class="unit-tag">USD spend</span></label><input id="rd" type="number"><div class="unit-preview" id="uRD">—</div></div>
+            <div class="field"><label><span>Procurement quantity</span><span class="unit-tag">RM units</span></label><input id="procurement" type="number"><div class="unit-preview" id="uProcurement">—</div></div>
+            <div class="field"><label><span>Maintenance</span><span class="unit-tag">USD spend</span></label><input id="maintenance" type="number"><div class="unit-preview" id="uMaintenance">—</div></div>
+            <div class="field"><label><span>Equipment investment</span><span class="unit-tag">USD investment</span></label><input id="equipment" type="number"><div class="unit-preview" id="uEquipment">—</div></div>
+            <div class="field"><label><span>Proposed dividend</span><span class="unit-tag">USD</span></label><input id="dividend" type="number"><div class="unit-preview" id="uDividend">—</div></div>
+            <div class="field"><label><span>Projected ending equity</span><span class="unit-tag">USD</span></label><input id="projectedEndingEquity" type="number"><div class="unit-preview" id="uEndingEquity">—</div></div>
           </div>
           <div class="spacer"></div><div class="callout gold">Expected demand and projected ending equity are deliberately editable in v0.1. The next calibration layer will estimate them automatically from environment + competitors + round history.</div>
         </div>
         <div class="card"><h3>Structural result</h3>
           <div class="grid g2">
-            <div class="pill">Actual dividend<b id="mActualDividend">—</b></div>
-            <div class="pill">Equipment fee<b id="rEquipmentFee">—</b></div>
-            <div class="pill">Added capacity<b id="rAddedCapacity">—</b></div>
-            <div class="pill">Next equipment BV<b id="rNextBV">—</b></div>
-            <div class="pill">Replacement cost<b id="rRC">—</b></div>
-            <div class="pill">Economic equity<b id="rEE">—</b></div>
-            <div class="pill">PV dividends<b id="rPVDiv">—</b></div>
-            <div class="pill">PV terminal value<b id="rPVTerminal">—</b></div>
-            <div class="pill">NPV<b id="rNPV">—</b></div>
-            <div class="pill">RM required<b id="rRMNeed">—</b></div>
-            <div class="pill">Ordering cost estimate<b id="rOrdering">—</b><span id="rOrderBand" class="small muted"></span></div>
-            <div class="pill">Terminal equipment structural Δ<b id="rTerminalEquip">—</b></div>
+            <div class="pill">Actual dividend <span class="metric-unit">USD</span><b id="mActualDividend">—</b></div>
+            <div class="pill">Equipment fee <span class="metric-unit">USD</span><b id="rEquipmentFee">—</b></div>
+            <div class="pill">Added capacity <span class="metric-unit">finished units</span><b id="rAddedCapacity">—</b></div>
+            <div class="pill">Next equipment BV <span class="metric-unit">USD</span><b id="rNextBV">—</b></div>
+            <div class="pill">Replacement cost <span class="metric-unit">USD</span><b id="rRC">—</b></div>
+            <div class="pill">Economic equity <span class="metric-unit">USD</span><b id="rEE">—</b></div>
+            <div class="pill">PV dividends <span class="metric-unit">USD</span><b id="rPVDiv">—</b></div>
+            <div class="pill">PV terminal value <span class="metric-unit">USD</span><b id="rPVTerminal">—</b></div>
+            <div class="pill">NPV <span class="metric-unit">USD</span><b id="rNPV">—</b></div>
+            <div class="pill">RM required <span class="metric-unit">raw-material units</span><b id="rRMNeed">—</b></div>
+            <div class="pill">Ordering cost estimate <span class="metric-unit">USD</span><b id="rOrdering">—</b><span id="rOrderBand" class="small muted"></span></div>
+            <div class="pill">Terminal equipment structural Δ <span class="metric-unit">USD</span><b id="rTerminalEquip">—</b></div>
           </div>
           <div class="spacer"></div><button id="addActualDividend" class="btn">Store this round's actual dividend</button>
           <div class="spacer"></div><div id="historySummary" class="small muted"></div>
