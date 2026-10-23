@@ -245,6 +245,16 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
         <div class="card"><h3>Base</h3><p class="small muted">Uses the current Decision Lab package, with calibrated demand replacing the manual demand only for scenario evaluation.</p><button class="btn primary" data-apply-scenario="base">Apply to Decision Lab</button></div>
         <div class="card"><h3>Aggressive</h3><p class="small muted">Higher commercial spend and larger production buffer; intended to expose upside and liquidity/overproduction risk.</p><button class="btn" data-apply-scenario="aggressive">Apply to Decision Lab</button></div>
       </div>
+      <div class="spacer"></div>
+      <div class="card">
+        <div class="title-row"><div><h3>Final-Round Candidate Search</h3><div class="small muted">Grid-searches price, Marketing, R&D, maintenance, equipment and production buffer. Procurement is set to 0 in the final-round search because it has no operating use and still incurs ordering cost.</div></div><button id="runFinalSearch" class="btn gold">Search candidates</button></div>
+        <div class="spacer"></div><div id="finalSearchStatus" class="callout">Run this in the final round. Earlier rounds require a multi-period optimizer and are intentionally not ranked by a one-round objective.</div>
+        <div class="spacer"></div>
+        <div class="scroll"><table>
+          <thead><tr><th>#</th><th>Price</th><th>Mkt</th><th>R&D</th><th>Maint.</th><th>Equip.</th><th>Production</th><th>Demand</th><th>Net Profit</th><th>Terminal NPV</th><th></th></tr></thead>
+          <tbody id="finalSearchBody"><tr><td colspan="11" class="muted">No search run yet.</td></tr></tbody>
+        </table></div>
+      </div>
     </section>
 
     <section id="audit" class="section">
@@ -757,6 +767,41 @@ function v02Forecast(decision){
   if(endingFGI>0.15*Math.max(1,sales)) warnings.push('Ending finished-goods inventory exceeds 15% of projected sales.');
   return {demand,production,sales,endingFGI,endingRM,revenue,expenses,totalExpenses,pbt,tax,netProfit,actualDividend,endingEquity,ee,npv,cost:c,warnings};
 }
+
+function v03FinalCandidateSearch(){
+  if(Number(model.currentRound)!==Number(model.totalRounds)){
+    html('#finalSearchBody','<tr><td colspan="11" class="muted">Final-round search is disabled before the terminal round.</td></tr>');
+    html('#finalSearchStatus','<b>Not a terminal round.</b> A one-round NPV ranking would ignore future carryover and could recommend value-destructive decisions.');
+    return [];
+  }
+  const d={...model.decision}, s=model.state;
+  const prices=[]; for(let x=-0.30;x<=0.3001;x+=0.10) prices.push(Math.max(3,Math.min(9,Number(d.price||0)+x)));
+  const mm=[0.6,0.8,1.0,1.2,1.4], rm=[0.6,0.8,1.0,1.2,1.4], maint=[0.6,0.8,1.0,1.2];
+  const eq=[0,50000,100000,150000,Number(d.equipment||0)].filter((v,i,a)=>a.indexOf(v)===i);
+  const buffers=[0.98,1.00,1.02];
+  const out=[];
+  for(const price of prices) for(const ma of mm) for(const rd of rm) for(const mn of maint) for(const equipment of eq){
+    const base={...d,price,marketing:Math.round(Number(d.marketing||0)*ma),rd:Math.round(Number(d.rd||0)*rd),maintenance:Math.round(Number(d.maintenance||0)*mn),equipment:Math.round(equipment),procurement:0};
+    const demand=v02PredictDemand(base);
+    for(const buffer of buffers){
+      const x={...base,expectedDemand:demand};
+      x.production=Math.max(0,Math.round(demand*buffer-Number(s.finishedGoods||0)));
+      const f=v02Forecast(x);
+      out.push({decision:x,forecast:f});
+    }
+  }
+  out.sort((a,b)=>b.forecast.npv.value-a.forecast.npv.value);
+  const top=out.slice(0,10);
+  html('#finalSearchStatus','Searched <b>'+E.num(out.length)+'</b> candidate packages using the current calibrated demand model and verified terminal mechanics. Ranking remains forecast-dependent because demand/maintenance response is not an exact published formula.');
+  html('#finalSearchBody',top.map((x,i)=>'<tr><td>#'+(i+1)+'</td><td>'+E.money(x.decision.price)+'</td><td>'+E.money(x.decision.marketing)+'</td><td>'+E.money(x.decision.rd)+'</td><td>'+E.money(x.decision.maintenance)+'</td><td>'+E.money(x.decision.equipment)+'</td><td>'+E.num(x.forecast.production)+'</td><td>'+E.num(x.forecast.demand)+'</td><td>'+E.money(x.forecast.netProfit)+'</td><td><b>'+E.money(x.forecast.npv.value)+'</b></td><td><button class="btn smallbtn" data-final-pick="'+i+'">Apply</button></td></tr>').join(''));
+  $('[data-final-pick]').forEach(b=>b.onclick=()=>{
+    const pick=top[Number(b.dataset.finalPick)]; if(!pick)return;
+    model.decision={...model.decision,...pick.decision,expectedDemand:Math.round(pick.forecast.demand),production:Math.round(pick.decision.production)};
+    save();hydrateForms();v02Render();nav('decision');
+  });
+  return top;
+}
+
 function v02Scenarios(){
   const d={...model.decision};
   const variants=[
@@ -979,6 +1024,7 @@ const _baseRender=render;
 render=function(){ _baseRender(); try{v02Render();}catch(e){console.warn('v0.2 render',e);} };
 $('#recalibrateDemand').onclick=()=>v02Render();
 $('#refreshScenarios').onclick=()=>v02Render();
+$('#runFinalSearch').onclick=()=>v03FinalCandidateSearch();
 $('#applyPredictedDemand').onclick=()=>{model.decision.expectedDemand=Math.round(v02PredictDemand(model.decision));save();hydrateForms();v02Render();};
 $('[data-apply-scenario]').forEach(b=>b.onclick=()=>v02ApplyScenario(b.dataset.applyScenario));
 </script>
