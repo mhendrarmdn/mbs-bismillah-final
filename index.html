@@ -1600,14 +1600,104 @@ function v09ContinueFromState(startState,startRound,controls,models){
   const best=beam[0];
   return {best,terminal:v03TerminalValue(best)};
 }
+
+/* v0.11 — evaluation cache, weight presets, printable competition sheets */
+const v11EvalCache=new Map();
+function v11CacheKey(decision,beamWidth){
+  const st=model.state||{},cal=model.calibration||{};
+  return [
+    model.appMode,model.currentRound,model.totalRounds,model.competitorScenario,
+    Number(st.cash||0),Number(st.equity||0),Number(st.rawMaterial||0),Number(st.finishedGoods||0),Number(st.capacity||0),
+    Number(cal.demandScale||1).toFixed(4),Number(cal.conversionBias||0).toFixed(5),Number(cal.rawPriceScale||1).toFixed(4),
+    beamWidth,v09DecisionKey(decision)
+  ].join('~');
+}
+function v11ClearEvalCache(){v11EvalCache.clear();}
+function v11WeightPreset(name){
+  const presets={
+    balanced:{hold:0.25,pricewar:0.25,stronger:0.25,adverse:0.25},
+    base:{hold:0.50,pricewar:0.20,stronger:0.15,adverse:0.15},
+    defensive:{hold:0.15,pricewar:0.20,stronger:0.20,adverse:0.45},
+    pricewar:{hold:0.15,pricewar:0.50,stronger:0.15,adverse:0.20}
+  };
+  model.scenarioWeights={...(presets[name]||presets.balanced)};
+  save();hydrateForms();v10RenderCompetition();
+}
+function v11DecisionRows(d){
+  return [
+    ['Price',Number(d.price||0).toFixed(2)],
+    ['Production',Math.round(Number(d.production||0)).toLocaleString()],
+    ['Marketing',E.money(d.marketing)],
+    ['R&D',E.money(d.rd)],
+    ['Procurement',Math.round(Number(d.procurement||0)).toLocaleString()],
+    ['Maintenance',E.money(d.maintenance)],
+    ['Equipment',E.money(d.equipment)],
+    ['Dividend',E.money(d.dividend)]
+  ];
+}
+function v11PrintHTML(kind='decision'){
+  const rec=v10Recommended(),d=rec.decision,w=v10ScenarioWeights(),conf=v10Confidence();
+  const flags=v10RiskFlags(d),leader=v09LastEnsemble?.[0],stress=v10LastStress,h=v09LastPriceProdHeatmap;
+  const now=new Date().toLocaleString();
+  const decisionTable=v11DecisionRows(d).map(x=>'<tr><th>'+x[0]+'</th><td>'+x[1]+'</td></tr>').join('');
+  if(kind==='brief'){
+    const lr=model.lastReconciliation;
+    const learnRows=lr?[
+      ['Potential demand',lr.forecast?.demand,lr.actual?.demand,lr.error?.demand],
+      ['Conversion',lr.forecast?.conversion,lr.actual?.conversion,lr.error?.conversion],
+      ['Sales',lr.forecast?.sales,lr.actual?.sales,lr.error?.sales],
+      ['Net profit',lr.forecast?.netProfit,lr.actual?.netProfit,lr.error?.netProfit],
+      ['Cash',lr.forecast?.cashEnd,lr.actual?.cashEnd,lr.error?.cashEnd],
+      ['Equity',lr.forecast?.equity,lr.actual?.equity,lr.error?.equity]
+    ]:[];
+    return '<h1>MBS Post-Round Brief</h1><div>Generated '+now+' • Round '+model.currentRound+' / '+model.totalRounds+'</div>'+
+      '<h2>Latest Learning</h2>'+
+      (lr?'<table><thead><tr><th>Metric</th><th>Forecast</th><th>Actual</th><th>Error</th></tr></thead><tbody>'+
+        learnRows.map(x=>'<tr><td>'+x[0]+'</td><td>'+E.num(x[1])+'</td><td>'+E.num(x[2])+'</td><td>'+E.num(x[3])+'</td></tr>').join('')+'</tbody></table>':
+        '<div class="print-note">No reconciled round available yet.</div>')+
+      '<h2>Updated Calibration</h2><div class="print-grid">'+
+        '<div class="print-kpi">Demand scale<b>'+Number(model.calibration?.demandScale||1).toFixed(3)+'×</b></div>'+
+        '<div class="print-kpi">Conversion bias<b>'+Number(model.calibration?.conversionBias||0).toFixed(4)+'</b></div>'+
+        '<div class="print-kpi">RM price scale<b>'+Number(model.calibration?.rawPriceScale||1).toFixed(3)+'×</b></div>'+
+        '<div class="print-kpi">Confidence<b>'+conf.label+'</b></div></div>'+
+      '<h2>Next Recommended Decisions</h2><table><tbody>'+decisionTable+'</tbody></table>'+
+      '<div class="print-note">This brief contains calibrated forecasts and robustness heuristics; it is not an official TopBoss report.</div>';
+  }
+  return '<h1>MBS Submission Sheet</h1><div>Generated '+now+' • Round '+model.currentRound+' / '+model.totalRounds+' • '+rec.source+'</div>'+
+    '<h2>Eight Decisions</h2><table><tbody>'+decisionTable+'</tbody></table>'+
+    '<h2>Robustness Snapshot</h2><div class="print-grid">'+
+      '<div class="print-kpi">Projected NPV<b>'+(v03LastRollingResult?E.money(v03LastRollingResult.terminal?.npv?.value):'—')+'</b></div>'+
+      '<div class="print-kpi">Worst rival NPV<b>'+(leader?E.money(leader.worst):'—')+'</b></div>'+
+      '<div class="print-kpi">NPV P10<b>'+(stress?E.money(stress.p10):'—')+'</b></div>'+
+      '<div class="print-kpi">NPV P50<b>'+(stress?E.money(stress.p50):'—')+'</b></div>'+
+      '<div class="print-kpi">NPV P90<b>'+(stress?E.money(stress.p90):'—')+'</b></div>'+
+      '<div class="print-kpi">Overdraft risk<b>'+(stress?(stress.odProb*100).toFixed(1)+'%':'—')+'</b></div>'+
+      '<div class="print-kpi">Near max (1%)<b>'+(h?.total?h.near1+' / '+h.total:'—')+'</b></div>'+
+      '<div class="print-kpi">Confidence<b>'+conf.label+'</b></div></div>'+
+    '<h2>Rival Weights</h2><div class="print-note">Hold '+(w.hold*100).toFixed(0)+'% • Price War '+(w.pricewar*100).toFixed(0)+'% • Stronger '+(w.stronger*100).toFixed(0)+'% • Adverse '+(w.adverse*100).toFixed(0)+'%</div>'+
+    '<h2>Submission Checks</h2><div class="print-note">'+flags.map(x=>'• '+x.text).join('<br>')+'</div>'+
+    '<div class="print-note">Lock the forecast snapshot before entering these values into TopBoss.</div>';
+}
+function v11Print(kind){
+  html('#printSheet',v11PrintHTML(kind));
+  window.print();
+}
+
 function v09EvaluateFixedFirst(decision,beamWidth=7){
+  const key=v11CacheKey(decision,beamWidth);
+  if(v11EvalCache.has(key)) return v11EvalCache.get(key);
+  if(v11EvalCache.size>800) v11ClearEvalCache();
   const models=v03BehaviorModels(),round=Number(model.currentRound),state=v03BaseState();
   const tr=v03Transition(state,decision,round,models);
-  if(!Number.isFinite(tr.state.equity)||tr.state.equity<=0) return null;
-  if(round>=Number(model.totalRounds)) return {best:tr.state,terminal:v03TerminalValue(tr.state),first:tr.state.path[0]};
+  if(!Number.isFinite(tr.state.equity)||tr.state.equity<=0){v11EvalCache.set(key,null);return null;}
+  if(round>=Number(model.totalRounds)){
+    const out={best:tr.state,terminal:v03TerminalValue(tr.state),first:tr.state.path[0]};
+    v11EvalCache.set(key,out);return out;
+  }
   const cont=v09ContinueFromState(tr.state,round+1,v09Controls(beamWidth),models);
-  if(!cont) return null;
-  return {...cont,first:tr.state.path[0]};
+  if(!cont){v11EvalCache.set(key,null);return null;}
+  const out={...cont,first:tr.state.path[0]};
+  v11EvalCache.set(key,out);return out;
 }
 function v09BaselineDecision(){
   return {...(v03LastRollingResult?.best?.path?.[0]?.decision||model.decision)};
@@ -1642,6 +1732,7 @@ function v09RenderMatrix(tableId,rowLabels,colLabels,values,rowTitle){
   return {min,max,spread:max-min,near1,near3,total:flat.length};
 }
 function v09RunPriceProductionHeatmap(){
+  v11ClearEvalCache();
   const base=v09BaselineDecision(),priceSteps=[-0.20,-0.10,0,0.10,0.20],prodMult=[0.94,0.97,1,1.03,1.06];
   html('#ppHeatmapStatus','Evaluating 25 first-decision variants and re-optimizing the remaining horizon…');
   const vals=[];
@@ -1661,6 +1752,7 @@ function v09RunPriceProductionHeatmap(){
   return result;
 }
 function v09RunSupportHeatmap(){
+  v11ClearEvalCache();
   const base=v09BaselineDecision(),mult=[0.70,0.85,1,1.15,1.30],state=v03BaseState(),models=v03BehaviorModels();
   html('#supportHeatmapStatus','Evaluating support-spend neighborhood…');
   const vals=[];
@@ -1800,6 +1892,7 @@ function v10ApplyRobust(){
   save();hydrateForms();v10RenderCompetition();
 }
 function v10PrepareCompetition(){
+  v11ClearEvalCache();
   model.appMode='competition';
   const originalScenario=model.competitorScenario||'hold';
   v03LastRollingResult=v03RunRollingOptimizer();
@@ -1844,6 +1937,7 @@ function v10ExportSensitivity(){
 }
 
 function v09RunScenarioEnsemble(){
+  v11ClearEvalCache();
   const scenarios=['hold','pricewar','stronger','adverse'],labels={hold:'Hold',pricewar:'Price War',stronger:'Stronger',adverse:'Adverse'};
   const previous=model.competitorScenario||'hold',candidates=[],seen=new Set();
   html('#ensembleStatus','Generating candidate first decisions from four rival scenarios…');
