@@ -64,7 +64,10 @@ MBS_PASSWORD_FIELD=<HTML form field name>
 MBS_ROLE_FIELD=<HTML select field name>
 MBS_LOGIN_ACTION=<full login POST URL>
 MBS_LOGIN_METHOD=POST
+MBS_HOME_URL=https://mbs.top-boss.com/home/a7
 ```
+
+`MBS_HOME_URL` is normally unnecessary. Direct Sync now derives the arena dashboard from the login URL (for example `/login/a7` → `/home/a7`) and follows safe same-origin redirect URLs returned by the login response. Use the override only if a competition arena uses a non-standard post-login home URL.
 
 ## Data pulled by Direct Sync
 
