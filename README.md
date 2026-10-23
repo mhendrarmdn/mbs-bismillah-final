@@ -1,4 +1,4 @@
-# MBS Decision & NPV Engine — MVP v0.1
+# MBS Decision & NPV Engine — v0.2
 
 A local-first decision workspace for the 2026 MBS E-Case Competition.
 
@@ -24,6 +24,12 @@ A local-first decision workspace for the 2026 MBS E-Case Competition.
   - competitor sales data
 - Workspace export/import with JSON
 - Simulation 1 sample dataset
+- Empirical demand calibration from HAR round history (ridge model; clearly labelled calibrated)
+- Transparent one-round P&L forecast
+- Verified progressive marginal tax engine for Low / Moderate / High environments
+- Rolling labor/material/admin cost calibration from the most recent completed round and inflation index
+- Conservative / Base / Aggressive scenario comparison
+- One-click application of scenario packages back to the Decision Lab
 
 ## Intentionally NOT claimed yet
 The app does not yet pretend to know the exact demand-response curve or the full forecast P&L. Expected demand and projected ending equity remain editable in v0.1. These will become automated only after calibration and validation.
@@ -46,5 +52,11 @@ Example:
 5. After each TopBoss round, import a new HAR or update the state manually.
 6. Export the workspace as a backup.
 
+## Model-status discipline
+The app separates three classes of logic:
+- **Verified**: formulas reproduced from the actual HAR / simulator glossary.
+- **Calibrated**: empirical relationships fitted from the current game's historical rounds.
+- **Unknown / forecast**: never silently treated as exact.
+
 ## Next build target
-v0.2: empirical demand + maintenance calibration, full P&L reconciliation, multi-scenario comparison, and candidate-decision optimization.
+v0.3: maintenance-response calibration, full cash-flow / debt reconciliation, competitor-aware demand features, rolling multi-round NPV projection, and candidate-decision optimization.
