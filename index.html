@@ -44,6 +44,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
     <div class="brand"><div class="logo">M</div><div><h1>MBS Decision Engine</h1><small>NPV-first competition workspace</small></div></div>
     <div class="nav">
       <button class="active" data-target="dashboard"><span class="ico">◫</span> Control Center</button>
+      <button data-target="competition"><span class="ico">★</span> Competition Dashboard</button>
       <button data-target="setup"><span class="ico">⚙</span> Game Setup</button>
       <button data-target="decision"><span class="ico">◎</span> Decision Lab</button>
       <button data-target="calibration"><span class="ico">∿</span> Calibration & Forecast</button>
@@ -61,6 +62,83 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
       <div><h2 id="pageTitle">Control Center</h2><p id="pageSub">Structural decision engine • verified mechanics first</p></div>
       <div class="actions"><span id="modeBadge" class="badge info">Practice</span><button id="useSample" class="btn">Load Simulation 1 sample</button><button id="exportWorkspace" class="btn">Export workspace</button><label class="btn">Import workspace<input id="workspaceFile" type="file" accept=".json" hidden></label><button id="newGame" class="btn danger">New game</button></div>
     </div>
+
+
+    <section id="competition" class="section">
+      <div class="callout gold"><b>Competition cockpit.</b> This screen intentionally hides most diagnostics and shows only what the team needs shortly before submission. Press <b>Prepare Competition View</b> after importing the latest HAR.</div>
+      <div class="spacer"></div>
+      <div class="actions">
+        <button id="prepareCompetition" class="btn gold">Prepare Competition View</button>
+        <button id="compApplyRobust" class="btn primary">Apply robust leader</button>
+        <button id="compCopy" class="btn primary">Lock + Copy 8 decisions</button>
+        <button id="compExport" class="btn">Export competition pack</button>
+      </div>
+      <div class="spacer"></div>
+
+      <div class="grid g4">
+        <div class="card metric"><div class="label">Round</div><div class="value" id="compRound">—</div><div class="foot" id="compMode">—</div></div>
+        <div class="card metric"><div class="label">Projected NPV</div><div class="value" id="compNPV">—</div><div class="foot">Rolling central path</div></div>
+        <div class="card metric"><div class="label">Worst rival NPV</div><div class="value" id="compWorstNPV">—</div><div class="foot">Robust ensemble leader</div></div>
+        <div class="card metric"><div class="label">Max overdraft</div><div class="value" id="compOverdraft">—</div><div class="foot">Best projected path</div></div>
+      </div>
+
+      <div class="spacer"></div>
+      <div class="grid g2">
+        <div class="card">
+          <div class="title-row"><h3>Recommended 8 Decisions</h3><span id="compDecisionSource" class="badge info">Current</span></div>
+          <div class="grid g4">
+            <div class="pill">Price<b id="compPrice">—</b></div>
+            <div class="pill">Production<b id="compProduction">—</b></div>
+            <div class="pill">Marketing<b id="compMarketing">—</b></div>
+            <div class="pill">R&D<b id="compRD">—</b></div>
+            <div class="pill">Procurement<b id="compProcurement">—</b></div>
+            <div class="pill">Maintenance<b id="compMaintenance">—</b></div>
+            <div class="pill">Equipment<b id="compEquipment">—</b></div>
+            <div class="pill">Dividend<b id="compDividend">—</b></div>
+          </div>
+          <div class="spacer"></div><div id="compWarnings" class="callout">Prepare the competition view to generate submission checks.</div>
+        </div>
+
+        <div class="card">
+          <h3>Robustness Snapshot</h3>
+          <div class="grid g2">
+            <div class="pill">NPV P10<b id="compP10">—</b></div>
+            <div class="pill">NPV P50<b id="compP50">—</b></div>
+            <div class="pill">NPV P90<b id="compP90">—</b></div>
+            <div class="pill">Overdraft probability<b id="compODProb">—</b></div>
+            <div class="pill">Price/Prod. within 1%<b id="compBreadth1">—</b></div>
+            <div class="pill">Price/Prod. within 3%<b id="compBreadth3">—</b></div>
+            <div class="pill">Robust score<b id="compRobustScore">—</b></div>
+            <div class="pill">Decision confidence<b id="compConfidence">—</b></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="spacer"></div>
+      <div class="grid g2">
+        <div class="card">
+          <h3>Rival Scenario Weights</h3>
+          <p class="small muted">Weights are normalized automatically. They express the team's beliefs, not probabilities inferred by the model.</p>
+          <div class="form-grid">
+            <div class="field"><label>Hold latest</label><input id="weightHold" type="number" min="0" step="0.05"></div>
+            <div class="field"><label>Price war</label><input id="weightPricewar" type="number" min="0" step="0.05"></div>
+            <div class="field"><label>Stronger rivals</label><input id="weightStronger" type="number" min="0" step="0.05"></div>
+            <div class="field"><label>Adverse mix</label><input id="weightAdverse" type="number" min="0" step="0.05"></div>
+          </div>
+          <div class="spacer"></div><div id="compWeightSummary" class="small muted">Equal weights by default.</div>
+        </div>
+        <div class="card">
+          <h3>Submission Readiness</h3>
+          <div id="compReadiness" class="callout">Not prepared yet.</div>
+          <div class="spacer"></div>
+          <div class="kpi-strip">
+            <div class="pill">Demand correction<b id="compDemandCorrection">—</b></div>
+            <div class="pill">Conversion bias<b id="compConversionBias">—</b></div>
+            <div class="pill">RM-price scale<b id="compRMScale">—</b></div>
+          </div>
+        </div>
+      </div>
+    </section>
 
     <section id="dashboard" class="section active">
       <div class="callout gold"><b>Purpose:</b> maximize NPV without hard-coding the old simulation state. Verified mechanics are calculated exactly; unknown demand/behavioral functions stay visible as calibration gaps instead of being fabricated.</div>
@@ -742,7 +820,8 @@ let model={
   calibration:{demandScale:1,conversionBias:0,rawPriceScale:1,lastReconciledRound:0},
   lastReconciliation:null,
   roundJournal:[],
-  competitorScenario:'hold'
+  competitorScenario:'hold',
+  scenarioWeights:{hold:0.25,pricewar:0.25,stronger:0.25,adverse:0.25}
 };
 
 function save(){localStorage.setItem('mbsEngineMVP',JSON.stringify(model));}
@@ -758,6 +837,7 @@ function nav(id){
   $$('.nav button').forEach(x=>x.classList.toggle('active',x.dataset.target===id));
   const titles={
     dashboard:['Control Center','Structural decision engine • verified mechanics first'],
+    competition:['Competition Dashboard','One-screen submission cockpit for the final 5–10 minutes'],
     setup:['Game Setup','Environment and opening-state parameters'],
     decision:['Decision Lab','Evaluate the eight decisions before submitting'],
     calibration:['Calibration & Forecast','Empirical demand model and transparent P&L forecast'],
