@@ -3,19 +3,18 @@
 ## Scope
 Validation uses the supplied **MBS Simulation 1 Group 1** HAR and the Markowitz company's actual R2-R8 decisions/outcomes.
 
-## State-transition backtest
-Using actual potential demand and actual conversion factor to isolate the accounting/operations engine:
+## State-transition validation
 
-| Metric | Maximum absolute error vs simulator, R2-R8 |
-|---|---:|
-| Ending cash | about $302 |
-| Ending owner's equity | about $373 |
-| Profit before tax | about $631 |
-| Total cash operating expense | below $1 per round in the tested R2-R8 cases |
+The app now computes the current forecast engine's historical error directly in the **Backtest & Confidence** tab instead of hard-coding a small error claim.
 
-The small residual differences are consistent with hidden rounding/truncation of material consumption and tax bases.
+Why this changed:
+- Several accounting identities and expense formulas are verified exactly or nearly exactly.
+- Future unit labor cost is only described as being affected by the price index; the full published formula is not available.
+- Demand, conversion, quality, image, and future raw-material prices remain calibrated forecasts.
+- Therefore the full forecast transition can have materially larger error than the accounting identities alone.
 
-R1 is intentionally excluded from this validation because the opening finished-goods cost basis has special initialization behavior that does not match the regular R2+ inventory roll-forward.
+R1 is treated separately because the opening inventory initialization is special. The live backtest starts at R2.
+
 
 ## Mechanics reproduced from the HAR/glossary
 - Equipment depreciation: 2.5% of beginning book value per round.
@@ -46,10 +45,19 @@ R1 is intentionally excluded from this validation because the opening finished-g
 - Future competitor behavior.
 
 ## Simulation-1 response-model diagnostics
-Using eight observed Markowitz rounds:
-- Competitor-aware potential demand model: R2 ~0.839; MAE ~34.4k units.
-- Product-quality response model: R2 ~0.900.
-- Product-image response model: R2 ~0.816.
-- Conversion-factor response model: R2 ~0.644; MAE ~0.0059.
 
-These diagnostics are training-sample fit statistics, not guarantees for the competition environment.
+The app displays live training-sample diagnostics for the currently loaded HAR:
+- competitor-aware potential demand model
+- product-quality response model
+- product-image response model
+- conversion-factor response model
+
+These are descriptive in-sample diagnostics, not guarantees for the competition environment.
+
+## Uncertainty layer
+v0.4 adds a stress test around the selected rolling path. It perturbs demand and conversion using the observed model residual dispersion and reports:
+- NPV P10 / median / P90
+- probability of any overdraft
+- probability that terminal NPV remains positive
+
+This is a model-risk sensitivity band, not a formal confidence interval.
