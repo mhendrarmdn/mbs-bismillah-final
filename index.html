@@ -1996,10 +1996,14 @@ function v10Confidence(){
   if(model.appMode==='competition' && !hasComp) ratio=Math.min(ratio,0.35);
   if(model.appMode==='competition' && hasComp){
     const completed=Math.max(0,Number(v15DecisionRound(v03Dataset())||1)-1);
-    const reconciled=Number(model.calibration?.lastReconciledRound||0);
+    const reconciledSet=new Set((model.calibration?.reconciledRounds||[]).map(Number));
+    const reconciledCount=Array.from({length:completed},(_,i)=>i+1).filter(r=>reconciledSet.has(r)).length;
+    const coverage=completed>0?reconciledCount/completed:0;
     if(completed===0) ratio=Math.min(ratio,0.45);
     else if(completed===1) ratio=Math.min(ratio,0.68);
-    if(reconciled<completed) ratio=Math.min(ratio,0.58);
+    if(completed>=2 && coverage<0.50) ratio=Math.min(ratio,0.45);
+    else if(completed>=2 && coverage<0.75) ratio=Math.min(ratio,0.58);
+    else if(completed>=2 && coverage<1.00) ratio=Math.min(ratio,0.68);
   }
   return {label:ratio>=0.78?'HIGH':ratio>=0.50?'MEDIUM':'LOW',score:ratio,hasCompetitors:hasComp};
 }
@@ -2273,7 +2277,8 @@ function v07RenderLearning(){
   if(r.actual.laborUnit) rows.push(['Labor unit cost',r.forecast.laborUnit,r.actual.laborUnit,r.error.laborUnit,'d']);
   const fmt=(v,t)=>t==='m'?E.money(v):t==='d'?Number(v||0).toFixed(4):E.num(v);
   html('#learningBody',rows.map(x=>'<tr><td>'+x[0]+'</td><td>'+fmt(x[1],x[4])+'</td><td>'+fmt(x[2],x[4])+'</td><td>'+fmt(x[3],x[4])+'</td></tr>').join(''));
-  html('#learningStatus','Round '+r.round+' learned. Demand, conversion, and RM-price correction factors were updated.');
+  const learned=(model.calibration?.reconciledRounds||[]).map(Number).sort((a,b)=>a-b);
+  html('#learningStatus','Round '+r.round+' learned. Demand, conversion, RM-price and labor-cost correction factors were updated. Matched submitted rounds: '+(learned.length?learned.map(x=>'R'+x).join(', '):'none')+'.');
 }
 
 /* v0.6 — explicit practice/competition mode + team submission checklist */
