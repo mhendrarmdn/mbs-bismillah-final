@@ -2711,10 +2711,12 @@ function v15DecisionRound(data=model.imported){
   if(!data) return Math.max(1,Number(model.currentRound||1));
   const latest=v15LatestCompleted(data);
   const total=Math.max(1,Number(data?.environment?.period||model.totalRounds||latest+1||1));
-  if(latest>=total) return total;
-  const authoritative=Number(data?.topBossRound||model.topBossRound||0);
-  if(Number.isFinite(authoritative)&&authoritative>=1) return Math.max(1,Math.min(total,authoritative));
-  return Math.max(1,Math.min(total,latest+1));
+  // TopBoss user.round is the simulator's current/completed round indicator. For a live decision,
+  // the authoritative next decision is therefore latest completed history + 1.
+  if(latest>=0) return latest>=total?total:Math.max(1,Math.min(total,latest+1));
+  const serverRound=Number(data?.topBossRound||model.topBossRound||0);
+  if(Number.isFinite(serverRound)&&serverRound>=1) return Math.max(1,Math.min(total,serverRound));
+  return Math.max(1,Math.min(total,Number(model.currentRound||1)));
 }
 function v15OperationDecision(o){
   const d=o?.decision||{};
