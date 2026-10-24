@@ -71,7 +71,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
       <button data-target="audit"><span class="ico">✓</span> Formula Audit</button>
       <button data-target="import"><span class="ico">⇩</span> HAR Import</button>
     </div>
-    <div class="side-note">v0.14 • heatmap formatting fix<br>Structural engine is based on verified Simulation 1 mechanics. Demand-response calibration is intentionally not guessed.</div>
+    <div class="side-note">v0.15 • competition HAR alignment + timing fixes<br>Structural engine is based on verified TopBoss mechanics. Demand-response calibration is learned from observed rounds and reconciled snapshots.</div>
   </aside>
   <main class="main">
     <div class="topbar">
@@ -732,9 +732,15 @@ self.onmessage = async (ev) => {
       south:rawAfter(salesPage,'south_list: '),
       foreign:rawAfter(salesPage,'foreign_list: ')
     };
+    const user=rawAfter(page('/index'),'user: ');
     self.postMessage({
       type:'done',
-      data:{environment,economy,operation,finance,rank,competitors,salesPeriods,entryCount:entries.length}
+      data:{
+        environment,economy,operation,finance,rank,competitors,salesPeriods,entryCount:entries.length,
+        topBossRound:Number(user?.round||0)||null,
+        ownCompanyName:user?.company_name||null,
+        sessionCompanyName:user?.company_name||null
+      }
     });
   }catch(err){
     self.postMessage({type:'error',message:String(err?.message||err)});
@@ -954,8 +960,14 @@ function hydrateForms(){
   render();
 }
 
+function v15InvalidateAnalysis(reason='state changed'){
+  try{ if(typeof v11ClearEvalCache==='function') v11ClearEvalCache(); }catch(_){}
+  try{ v03LastRollingResult=null; }catch(_){}
+  try{ v09LastEnsemble=null; v09LastPriceProdHeatmap=null; v09LastSupportHeatmap=null; }catch(_){}
+  try{ v10LastStress=null; v10PreparedDecision=null; }catch(_){}
+}
 function readForms(){
-  if(typeof v11ClearEvalCache==='function') v11ClearEvalCache();
+  v15InvalidateAnalysis('manual form edit');
   model.appMode=$('#appMode').value||'practice';
   model.competitorScenario=$('#rollCompScenario')?.value||model.competitorScenario||'hold';
   model.scenarioWeights={
@@ -2130,7 +2142,8 @@ function v09RunScenarioEnsemble(){
 /* v0.7 — RM cash-price forecast + locked submission snapshots + live reconciliation */
 function v07Ensure(){
   if(!model.submissionSnapshots) model.submissionSnapshots={};
-  if(!model.calibration) model.calibration={demandScale:1,conversionBias:0,rawPriceScale:1,laborScale:1,lastReconciledRound:0};
+  if(!model.calibration) model.calibration={demandScale:1,conversionBias:0,rawPriceScale:1,laborScale:1,lastReconciledRound:0,reconciledRounds:[]};
+  if(!Array.isArray(model.calibration.reconciledRounds)) model.calibration.reconciledRounds=[];
   if(!Number.isFinite(Number(model.calibration.laborScale))) model.calibration.laborScale=1;
 }
 function v07Clamp(x,a,b){return Math.max(a,Math.min(b,x));}
@@ -2170,7 +2183,11 @@ function v07ApplyCalibration(b,models){
 }
 function v07LockSnapshot(silent=false){
   v07Ensure();
-  const round=Number(model.currentRound),models=v03BehaviorModels(),state=v03BaseState();
+  if(v14GameFinished()){
+    if(!silent) alert('TopBoss game is already finished; the submitted-round snapshot was not changed.');
+    return false;
+  }
+  const round=Number(v15DecisionRound(v03Dataset())),models=v03BehaviorModels(),state=v03BaseState();
   const b=v03PredictBehavior(state,model.decision,round,models),tr=v03Transition(state,model.decision,round,models);
   model.submissionSnapshots[String(round)]={
     round,createdAt:new Date().toISOString(),decision:JSON.parse(JSON.stringify(model.decision)),
@@ -2180,11 +2197,12 @@ function v07LockSnapshot(silent=false){
   save();
   if(!silent) alert('Forecast snapshot locked for Round '+round+'.');
   try{v07RenderLearning();}catch(_){}
+  return true;
 }
 function v07Reconcile(data,round){
   v07Ensure();
   const snap=model.submissionSnapshots?.[String(round)];
-  if(!snap||Number(model.calibration.lastReconciledRound||0)>=round) return null;
+  if(!snap||model.calibration.reconciledRounds.includes(Number(round))) return null;
   const o=data?.operation?.[round],f=data?.finance?.[String(round)]; if(!o||!f) return null;
   const a={demand:Number(o.sales?.potential_demand||0),conversion:Number(o.inventory?.efficiency||0),sales:Number(o.sales?.volume||0),netProfit:Number(f.income?.net_profit_after_tax||0),cashEnd:Number(f.balance?.cash||0),equity:Number(f.balance?.equity||0),rmPrice:v07EffectiveRMPrice(data,round),laborUnit:Number(f.income?.unit_labor_cost||0)};
   const p=snap.predicted||{};
@@ -2193,20 +2211,22 @@ function v07Reconcile(data,round){
   model.calibration.conversionBias=v07Clamp(0.55*Number(model.calibration.conversionBias||0)+0.45*(a.conversion-Number(p.conversion||a.conversion)),-0.03,0.03);
   if(a.rmPrice&&p.rmPrice>0) model.calibration.rawPriceScale=v07Clamp(0.60*Number(model.calibration.rawPriceScale||1)+0.40*(a.rmPrice/p.rmPrice),0.70,1.30);
   if(a.laborUnit>0&&p.laborUnit>0) model.calibration.laborScale=v07Clamp(0.60*Number(model.calibration.laborScale||1)+0.40*(a.laborUnit/p.laborUnit),0.85,1.15);
-  model.calibration.lastReconciledRound=round;
+  model.calibration.reconciledRounds.push(Number(round));
+  model.calibration.reconciledRounds=[...new Set(model.calibration.reconciledRounds)].sort((a,b)=>a-b);
+  model.calibration.lastReconciledRound=Math.max(0,...model.calibration.reconciledRounds);
   model.lastReconciliation={round,forecast:p,actual:a,error:{demand:a.demand-Number(p.demand||0),conversion:a.conversion-Number(p.conversion||0),sales:a.sales-Number(p.sales||0),netProfit:a.netProfit-Number(p.netProfit||0),cashEnd:a.cashEnd-Number(p.cashEnd||0),equity:a.equity-Number(p.equity||0),rmPrice:a.rmPrice&&p.rmPrice?a.rmPrice-p.rmPrice:null,laborUnit:a.laborUnit&&p.laborUnit?a.laborUnit-p.laborUnit:null}};
   v08Journal('ROUND RECONCILED',round,'Demand error '+Math.round(model.lastReconciliation.error.demand)+'; profit error '+Math.round(model.lastReconciliation.error.netProfit)+'.',{reconciliation:model.lastReconciliation,calibration:model.calibration});
   return model.lastReconciliation;
 }
 function v07RenderLearning(){
   v07Ensure();
-  const c=model.calibration,r=model.lastReconciliation,snap=model.submissionSnapshots?.[String(model.currentRound)];
+  const c=model.calibration,r=model.lastReconciliation,decisionRound=Number(v15DecisionRound(v03Dataset())),snap=model.submissionSnapshots?.[String(decisionRound)];
   text('#learnDemandScale',Number(c.demandScale||1).toFixed(3)+'×');
   text('#learnConversionBias',(Number(c.conversionBias||0)>=0?'+':'')+Number(c.conversionBias||0).toFixed(4));
   text('#learnRMScale',Number(c.rawPriceScale||1).toFixed(3)+'×');
   text('#learnLaborScale',Number(c.laborScale||1).toFixed(3)+'×');
-  text('#learnRMForecast',E.money(v07ForecastRMPrice(Number(model.currentRound))));
-  text('#learningBadge',r?'Reconciled R'+r.round:(snap?'Snapshot R'+model.currentRound:'No snapshot yet'));
+  text('#learnRMForecast',E.money(v07ForecastRMPrice(decisionRound)));
+  text('#learningBadge',r?'Reconciled R'+r.round:(snap?'Snapshot R'+decisionRound:'No snapshot yet'));
   $('#learningBadge').className='badge '+(r?'ok':snap?'warn':'info');
   if(!r){html('#learningBody','<tr><td colspan="4" class="muted">No reconciled submitted round yet.</td></tr>');html('#learningStatus',snap?'Snapshot locked. Import the post-round HAR to reconcile.':'Lock a forecast immediately before submission.');return;}
   const rows=[['Demand',r.forecast.demand,r.actual.demand,r.error.demand,'n'],['Conversion',r.forecast.conversion,r.actual.conversion,r.error.conversion,'d'],['Sales',r.forecast.sales,r.actual.sales,r.error.sales,'n'],['Net profit',r.forecast.netProfit,r.actual.netProfit,r.error.netProfit,'m'],['Cash',r.forecast.cashEnd,r.actual.cashEnd,r.error.cashEnd,'m'],['Equity',r.forecast.equity,r.actual.equity,r.error.equity,'m']];
@@ -2219,7 +2239,7 @@ function v07RenderLearning(){
 
 /* v0.6 — explicit practice/competition mode + team submission checklist */
 function v06RenderSubmission(){
-  const d=model.decision,c=calculations(),f=v02Forecast(d);
+  const d=model.decision,c=calculations(),f=v02Forecast(d),round=Number(v15DecisionRound(v03Dataset()));
   text('#modeBadge',model.appMode==='competition'?'Competition • live-safe':'Practice • retrospective');
   $('#modeBadge').className='badge '+(model.appMode==='competition'?'ok':'info');
   text('#subPrice',E.price(d.price)+' / unit');text('#subProduction',E.num(d.production)+' units');
@@ -2231,7 +2251,10 @@ function v06RenderSubmission(){
   if(Number(d.production)>maxProd) w.push('<b>BLOCK:</b> production exceeds modeled 150% overtime capacity.');
   if(c.rmNeed>Number(model.state.rawMaterial||0)) w.push('<b>BLOCK:</b> current raw material may be insufficient for requested production.');
   if(c.actualDiv<Number(d.dividend||0)) w.push('Dividend will be capped from '+E.money(d.dividend)+' to approximately '+E.money(c.actualDiv)+' by the equity-floor rule.');
-  if(model.currentRound===model.totalRounds && Number(d.procurement||0)>0) w.push('Final-round procurement is non-zero; verify that this is intentional.');
+  if(round===Number(model.totalRounds) && Number(d.procurement||0)>0) w.push('Final-round procurement cannot support final-round production; compare its terminal RM inventory value against ordering cost before keeping it.');
+  if(round===Number(model.totalRounds) && Number(d.maintenance||0)>0) w.push('Final-round maintenance has no next-round operating benefit under the official timing rule; it is normally a pure final-round expense.');
+  const snap=model.submissionSnapshots?.[String(round)];
+  if(snap && !v15DecisionMatches(snap.decision,d)) w.unshift('<b>OUTDATED SNAPSHOT:</b> Decision Lab changed after the last lock. Lock + Copy again before submitting TopBoss.');
   if(f.warnings?.length) w.push(...f.warnings);
   if(!w.length) w.push('<b>Structural checks passed.</b> Forecast relationships remain calibrated, so review demand uncertainty before submission.');
   html('#submissionWarnings',w.map(x=>'• '+x).join('<br>'));
@@ -2239,7 +2262,7 @@ function v06RenderSubmission(){
 function v06SubmissionText(){
   const d=model.decision;
   return [
-    'MBS ROUND '+model.currentRound+' / '+model.totalRounds,
+    'MBS ROUND '+v15DecisionRound(v03Dataset())+' / '+model.totalRounds,
     'Mode: '+(model.appMode||'practice'),
     'Price: '+Number(d.price||0).toFixed(2),
     'Production: '+Math.round(Number(d.production||0)),
@@ -2252,7 +2275,7 @@ function v06SubmissionText(){
   ].join('\n');
 }
 async function v06CopySubmission(){
-  v07LockSnapshot(true);
+  if(v07LockSnapshot(true)===false) return;
   const t=v06SubmissionText();
   try{await navigator.clipboard.writeText(t);alert('Eight decisions copied to clipboard.');}
   catch(_){prompt('Copy these decisions:',t);}
@@ -2663,23 +2686,89 @@ $('#workspaceFile').onchange=async e=>{
   try{model=JSON.parse(await f.text());save();hydrateForms();alert('Workspace imported.');}catch(err){alert('Invalid workspace: '+err.message);}
 };
 
+function v15LatestCompleted(data){
+  const finRounds=Object.keys(data?.finance||{}).map(Number).filter(Number.isFinite);
+  const finLatest=finRounds.length?Math.max(...finRounds):-1;
+  const opLatest=Array.isArray(data?.operation)&&data.operation.length?data.operation.length-1:-1;
+  return Math.max(finLatest,opLatest);
+}
+function v15DecisionRound(data=model.imported){
+  if(!data) return Math.max(1,Number(model.currentRound||1));
+  const latest=v15LatestCompleted(data);
+  const total=Math.max(1,Number(data?.environment?.period||model.totalRounds||latest+1||1));
+  if(latest>=total) return total;
+  const authoritative=Number(data?.topBossRound||model.topBossRound||0);
+  if(Number.isFinite(authoritative)&&authoritative>=1) return Math.max(1,Math.min(total,authoritative));
+  return Math.max(1,Math.min(total,latest+1));
+}
+function v15OperationDecision(o){
+  const d=o?.decision||{};
+  return {
+    price:Number(d.price||0),production:Number(d.production||0),marketing:Number(d.marketing||0),
+    rd:Number(d.rd||0),procurement:Number(d.purchase??d.procurement??0),maintenance:Number(d.maintenance||0),
+    equipment:Number(d.equipment||0),dividend:Number(d.dividend||0)
+  };
+}
+function v15DecisionMatches(a,b){
+  if(!a||!b) return false;
+  const priceOk=Math.abs(Number(a.price||0)-Number(b.price||0))<=0.011;
+  const keys=['production','marketing','rd','procurement','maintenance','equipment','dividend'];
+  return priceOk && keys.every(k=>Math.abs(Number(a[k]||0)-Number(b[k]||0))<=1);
+}
+function v15RepairSnapshotRoundAlignment(data,latest){
+  v07Ensure();
+  const source=Object.entries(model.submissionSnapshots||{}).map(([key,snap])=>({key,snap:JSON.parse(JSON.stringify(snap))}));
+  if(!source.length||!Array.isArray(data?.operation)) return 0;
+  const used=new Set(), repaired={}; let changed=0;
+  for(let r=1;r<=latest;r++){
+    if(!data.operation[r]?.decision) continue;
+    const actual=v15OperationDecision(data.operation[r]);
+    let hit=source.find(x=>!used.has(x.key)&&String(x.key)===String(r)&&v15DecisionMatches(x.snap?.decision,actual));
+    if(!hit) hit=source.find(x=>!used.has(x.key)&&v15DecisionMatches(x.snap?.decision,actual));
+    if(!hit) continue;
+    used.add(hit.key);
+    const existing=model.submissionSnapshots?.[String(r)];
+    if(!existing||!v15DecisionMatches(existing.decision,actual)){
+      repaired[String(r)]={...hit.snap,round:r,repairedFromRound:Number.isFinite(Number(hit.key))?Number(hit.key):hit.key};
+      changed++;
+    }
+  }
+  if(changed){
+    if(!Array.isArray(model.snapshotRepairLog)) model.snapshotRepairLog=[];
+    model.snapshotRepairLog.push({time:new Date().toISOString(),changed,latest});
+    Object.assign(model.submissionSnapshots,repaired);
+  }
+  return changed;
+}
+function v15ReconcileAvailable(data,latest){
+  v07Ensure();
+  let count=0,last=null;
+  for(let r=1;r<=latest;r++){
+    if(model.calibration.reconciledRounds.includes(r)) continue;
+    const rec=v07Reconcile(data,r);
+    if(rec){count++;last=rec;}
+  }
+  if(last) model.lastReconciliation=last;
+  return count;
+}
+
 function applyImportedDataset(x,sourceLabel,statusTarget='#harStatus'){
   if(!x) throw new Error('No TopBoss dataset received.');
-  let latest=null;
+  let latest=null,repairCount=0,reconcileCount=0;
   model.imported=x; model.source=sourceLabel||'TopBoss import';
   if(x.environment) model.environment=x.environment;
+  if(Number(x.topBossRound||0)>0) model.topBossRound=Number(x.topBossRound);
   model.rank=[]; model.gameFinished=false;
 
   if(x.finance && x.operation){
-    const rounds=Object.keys(x.finance).map(Number).filter(Number.isFinite);
-    if(rounds.length){
-      latest=Math.max(...rounds);
+    latest=v15LatestCompleted(x);
+    if(latest>=0){
       const f=x.finance[String(latest)], o=x.operation[Math.min(latest,x.operation.length-1)];
       if(f && o){
         model.initialEquity=x.finance["0"]?.balance?.equity || model.initialEquity;
-        model.totalRounds=x.environment?.period || latest;
+        model.totalRounds=Number(x.environment?.period||model.totalRounds||Math.max(1,latest));
         model.gameFinished=latest>=Number(model.totalRounds);
-        model.currentRound=model.gameFinished?Number(model.totalRounds):Math.min(latest+1,Number(model.totalRounds));
+        model.currentRound=Number(v15DecisionRound(x));
         model.rank=model.gameFinished&&Array.isArray(x.rank)?x.rank:[];
         model.state={
           cash:f.balance.cash,equity:f.balance.equity,rawMaterial:o.production.raw_material_inventory_end,
@@ -2712,21 +2801,23 @@ function applyImportedDataset(x,sourceLabel,statusTarget='#harStatus'){
           if(next?.inflation_index) model.nextPriceIndex=Number(next.inflation_index)/100;
         }
         v07Ensure();
-        const reconciliation=v07Reconcile(x,latest);
-        if(reconciliation) model.lastReconciliation=reconciliation;
+        repairCount=v15RepairSnapshotRoundAlignment(x,latest);
+        reconcileCount=v15ReconcileAvailable(x,latest);
       }
     }
   }
 
+  v15InvalidateAnalysis('new TopBoss state');
   save();hydrateForms();
   try{render();}catch(_){}
-  const learned=latest!=null && model.lastReconciliation && Number(model.lastReconciliation.round)===latest;
   const competitorPeriods=Array.isArray(x.salesPeriods)?x.salesPeriods.length:(Array.isArray(x.competitors?.north)?x.competitors.north.length:0);
   const salesMsg=competitorPeriods>0?' Sales Status competitor history: '+competitorPeriods+' period(s).':' Sales Status competitor history NOT FOUND.';
   const rankMsg=model.gameFinished?(Array.isArray(model.rank)&&model.rank.length?' Final Rankings captured.':' Final round complete; Rankings not captured.'):' Rankings intentionally ignored until the final round.';
-  const base=(sourceLabel||'TopBoss import')+' loaded.'+(latest!=null?' Latest completed round: R'+latest+'.':'');
-  text(statusTarget,base+salesMsg+rankMsg+(learned?' Forecast reconciliation updated.':''));
-  return {latest,competitorPeriods,gameFinished:model.gameFinished};
+  const base=(sourceLabel||'TopBoss import')+' loaded.'+(latest!=null?' Latest completed round: R'+latest+'. Decision round: R'+v15DecisionRound(x)+'.':'');
+  const repairMsg=repairCount?' Repaired '+repairCount+' legacy snapshot round mapping(s).':'';
+  const learnMsg=reconcileCount?' Reconciled '+reconcileCount+' submitted round(s).':'';
+  text(statusTarget,base+salesMsg+rankMsg+repairMsg+learnMsg);
+  return {latest,decisionRound:v15DecisionRound(x),competitorPeriods,gameFinished:model.gameFinished,repairCount,reconcileCount};
 }
 
 async function v16SyncFromMBS(){
@@ -2775,9 +2866,12 @@ async function v16SyncFromMBS(){
       return;
     }
     const label='Live MBS Sync'+(body.meta?.companyName?' • '+body.meta.companyName:'');
-    if(body.data && body.meta?.companyName){
-      body.data.ownCompanyName=body.meta.companyName;
-      body.data.sessionCompanyName=body.meta.companyName;
+    if(body.data){
+      if(body.meta?.companyName){
+        body.data.ownCompanyName=body.meta.companyName;
+        body.data.sessionCompanyName=body.meta.companyName;
+      }
+      if(Number(body.meta?.round||0)>0) body.data.topBossRound=Number(body.meta.round);
     }
     applyImportedDataset(body.data,label,'#mbsSyncStatus');
     const meta=[];
