@@ -403,7 +403,7 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
       <div class="callout gold"><b>Rolling optimizer:</b> searches from the active round through the terminal round. Verified accounting/production mechanics are used directly; demand, product quality/image, conversion and future raw-material prices remain calibrated forecasts.</div>
       <div class="spacer"></div>
       <div class="grid g4">
-        <div class="card metric"><div class="label">Inferred company</div><div class="value" id="rollCompany" style="font-size:18px">—</div><div class="foot">Matched from HAR sales rows</div></div>
+        <div class="card metric"><div class="label">Company</div><div class="value" id="rollCompany" style="font-size:18px">—</div><div class="foot">Direct Sync identity first; HAR inference fallback</div></div>
         <div class="card metric"><div class="label">Demand model R²</div><div class="value" id="rollDemandR2">—</div><div class="foot">Competitor-aware ridge model</div></div>
         <div class="card metric"><div class="label">Conversion model R²</div><div class="value" id="rollConvR2">—</div><div class="foot">Maintenance + R&D calibrated</div></div>
         <div class="card metric"><div class="label">Rounds remaining</div><div class="value" id="rollRemaining">—</div><div class="foot">Including current round</div></div>
@@ -1181,22 +1181,55 @@ function v03OwnSalesRow(data,round,name){
   if(!name) return null;
   return v03RoundRows(data,round).find(x=>x.company_name===name)||null;
 }
+function v03NormalizeCompanyName(value){
+  return String(value||'').trim().toLowerCase().replace(/[^a-z0-9]+/g,'');
+}
+function v03ExplicitOwnCompany(data=v03Dataset()){
+  const wanted=data?.ownCompanyName||data?.sessionCompanyName||data?.meta?.companyName||null;
+  if(!wanted) return null;
+  const wantedNorm=v03NormalizeCompanyName(wanted);
+  if(!wantedNorm) return null;
+  const n=v03North(data);
+  if(!n) return String(wanted).replace(/_+$/,'');
+  const rounds=Array.isArray(n)?n:Object.values(n);
+  const names=[];
+  for(const rows of rounds||[]){
+    for(const row of rows||[]){
+      const name=String(row?.company_name||'').trim();
+      if(name && !names.includes(name)) names.push(name);
+    }
+  }
+  return names.find(name=>v03NormalizeCompanyName(name)===wantedNorm)
+    || names.find(name=>v03NormalizeCompanyName(name).startsWith(wantedNorm)||wantedNorm.startsWith(v03NormalizeCompanyName(name)))
+    || String(wanted).replace(/_+$/,'');
+}
 function v03InferOwnCompany(data=v03Dataset()){
+  const explicit=v03ExplicitOwnCompany(data);
+  if(explicit) return explicit;
+
   const op=data?.operation||[], n=v03North(data); if(!n) return null;
   const votes={};
   for(let r=0;r<op.length;r++){
     const rows=v03RoundRows(data,r), o=op[r]; if(!rows.length||!o) continue;
     const p=Number(o.decision?.price), v=Number(o.sales?.volume);
-    let best=null,score=Infinity;
+    let bestScore=Infinity, tied=[];
     for(const row of rows){
       const ps=Math.abs(Number(row.price)-p)*100000;
       const vs=Math.abs(Number(row.volume)-v);
       const sc=ps+vs;
-      if(sc<score){score=sc;best=row;}
+      if(sc<bestScore-1e-9){bestScore=sc;tied=[row];}
+      else if(Math.abs(sc-bestScore)<=1e-9){tied.push(row);}
     }
-    if(best && score<2500) votes[best.company_name]=(votes[best.company_name]||0)+1;
+    // Do not award a vote when multiple teams are indistinguishable.
+    if(tied.length===1 && bestScore<2500){
+      const name=tied[0].company_name;
+      votes[name]=(votes[name]||0)+1;
+    }
   }
-  return Object.entries(votes).sort((a,b)=>b[1]-a[1])[0]?.[0]||null;
+  const ranked=Object.entries(votes).sort((a,b)=>b[1]-a[1]);
+  if(!ranked.length) return null;
+  if(ranked.length>1 && ranked[0][1]===ranked[1][1]) return null;
+  return ranked[0][0];
 }
 function v03CompStats(data,round,ownName){
   const latestObservable=Math.max(0,Number(model.currentRound||1)-1);
@@ -2742,6 +2775,10 @@ async function v16SyncFromMBS(){
       return;
     }
     const label='Live MBS Sync'+(body.meta?.companyName?' • '+body.meta.companyName:'');
+    if(body.data && body.meta?.companyName){
+      body.data.ownCompanyName=body.meta.companyName;
+      body.data.sessionCompanyName=body.meta.companyName;
+    }
     applyImportedDataset(body.data,label,'#mbsSyncStatus');
     const meta=[];
     if(body.meta?.gameName) meta.push(body.meta.gameName);
