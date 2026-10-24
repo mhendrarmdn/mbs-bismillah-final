@@ -2105,7 +2105,7 @@ function v10PrepareCompetition(){
 function v10ExportPack(){
   const rec=v10Recommended();
   const pack={
-    generatedAt:new Date().toISOString(),version:'v0.10',round:model.currentRound,totalRounds:model.totalRounds,
+    generatedAt:new Date().toISOString(),version:'v0.15',round:v15DecisionRound(v03Dataset()),totalRounds:model.totalRounds,
     mode:model.appMode,source:model.source,environment:model.environment,state:model.state,
     scenarioWeights:v10ScenarioWeights(),recommended:{source:rec.source,decision:rec.decision},
     rolling:v03LastRollingResult?{terminalNPV:v03LastRollingResult.terminal?.npv?.value,path:v03LastRollingResult.best?.path}:null,
@@ -2119,7 +2119,7 @@ function v10ExportPack(){
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='mbs-competition-pack-r'+model.currentRound+'.json';a.click();URL.revokeObjectURL(a.href);
 }
 function v10ExportSensitivity(){
-  const data={generatedAt:new Date().toISOString(),round:model.currentRound,scenarioWeights:v10ScenarioWeights(),priceProduction:v09LastPriceProdHeatmap,support:v09LastSupportHeatmap,ensemble:v09LastEnsemble};
+  const data={generatedAt:new Date().toISOString(),version:'v0.15',round:v15DecisionRound(v03Dataset()),scenarioWeights:v10ScenarioWeights(),priceProduction:v09LastPriceProdHeatmap,support:v09LastSupportHeatmap,ensemble:v09LastEnsemble};
   const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='mbs-sensitivity-r'+model.currentRound+'.json';a.click();URL.revokeObjectURL(a.href);
 }
@@ -2334,7 +2334,7 @@ async function v06CopySubmission(){
   catch(_){prompt('Copy these decisions:',t);}
 }
 function v06DownloadDecision(){
-  const payload={round:model.currentRound,totalRounds:model.totalRounds,mode:model.appMode,environment:model.environment,state:model.state,decision:model.decision,calibration:model.calibration,lastReconciliation:model.lastReconciliation,generatedAt:new Date().toISOString()};
+  const payload={version:'v0.15',round:v15DecisionRound(v03Dataset()),totalRounds:model.totalRounds,mode:model.appMode,environment:model.environment,state:model.state,decision:model.decision,calibration:model.calibration,lastReconciliation:model.lastReconciliation,generatedAt:new Date().toISOString()};
   const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
   const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='mbs-round-'+model.currentRound+'-decision.json';a.click();URL.revokeObjectURL(a.href);
 }
