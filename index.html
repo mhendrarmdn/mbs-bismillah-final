@@ -2736,7 +2736,7 @@ function v15RepairSnapshotRoundAlignment(data,latest){
   v07Ensure();
   const source=Object.entries(model.submissionSnapshots||{}).map(([key,snap])=>({key,snap:JSON.parse(JSON.stringify(snap))}));
   if(!source.length||!Array.isArray(data?.operation)) return 0;
-  const used=new Set(), repaired={}; let changed=0;
+  const used=new Set(), aligned={}, archived=[]; let changed=0;
   for(let r=1;r<=latest;r++){
     if(!data.operation[r]?.decision) continue;
     const actual=v15OperationDecision(data.operation[r]);
@@ -2744,16 +2744,31 @@ function v15RepairSnapshotRoundAlignment(data,latest){
     if(!hit) hit=source.find(x=>!used.has(x.key)&&v15DecisionMatches(x.snap?.decision,actual));
     if(!hit) continue;
     used.add(hit.key);
-    const existing=model.submissionSnapshots?.[String(r)];
-    if(!existing||!v15DecisionMatches(existing.decision,actual)){
-      repaired[String(r)]={...hit.snap,round:r,repairedFromRound:Number.isFinite(Number(hit.key))?Number(hit.key):hit.key};
+    aligned[String(r)]={...hit.snap,round:r,repairedFromRound:String(hit.key)===String(r)?undefined:Number(hit.key)};
+    if(String(hit.key)!==String(r)) changed++;
+  }
+  // Keep only pending/future snapshots as-is. Completed-round snapshots that do not match
+  // the actual TopBoss decision are archived so they can never poison calibration.
+  for(const x of source){
+    const k=Number(x.key);
+    if(used.has(x.key)) continue;
+    if(Number.isFinite(k)&&k>latest){
+      aligned[String(k)]={...x.snap,round:k};
+    } else {
+      archived.push({key:x.key,snapshot:x.snap});
       changed++;
     }
   }
+  if(archived.length){
+    if(!Array.isArray(model.unmatchedSubmissionSnapshots)) model.unmatchedSubmissionSnapshots=[];
+    model.unmatchedSubmissionSnapshots.push(...archived.map(x=>({
+      archivedAt:new Date().toISOString(),originalKey:x.key,snapshot:x.snapshot
+    })));
+  }
+  model.submissionSnapshots=aligned;
   if(changed){
     if(!Array.isArray(model.snapshotRepairLog)) model.snapshotRepairLog=[];
-    model.snapshotRepairLog.push({time:new Date().toISOString(),changed,latest});
-    Object.assign(model.submissionSnapshots,repaired);
+    model.snapshotRepairLog.push({time:new Date().toISOString(),changed,matchedCompleted:Object.keys(aligned).filter(k=>Number(k)<=latest).map(Number),latest});
   }
   return changed;
 }
@@ -2762,6 +2777,9 @@ function v15ReconcileAvailable(data,latest){
   let count=0,last=null;
   for(let r=1;r<=latest;r++){
     if(model.calibration.reconciledRounds.includes(r)) continue;
+    const snap=model.submissionSnapshots?.[String(r)];
+    const actualDecision=data?.operation?.[r]?.decision?v15OperationDecision(data.operation[r]):null;
+    if(!snap||!actualDecision||!v15DecisionMatches(snap.decision,actualDecision)) continue;
     const rec=v07Reconcile(data,r);
     if(rec){count++;last=rec;}
   }
