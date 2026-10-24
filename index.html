@@ -175,7 +175,25 @@ table{border-collapse:collapse;width:100%;font-size:12px}th,td{text-align:right;
         <div class="card metric"><div class="label">Round</div><div class="value" id="mRound">—</div><div class="foot" id="sourceLabel">—</div></div>
         <div class="card metric"><div class="label">Cash</div><div class="value" id="mCash">—</div><div class="foot">Current state</div></div>
         <div class="card metric"><div class="label">Owner's Equity</div><div class="value" id="mEquity">—</div><div class="foot">Current state</div></div>
-        <div class="card metric"><div class="label">Structural NPV if horizon ended here</div><div class="value" id="mTerminalNPV">—</div><div class="foot">Uses editable projected ending equity</div></div>
+        <div class="card metric"><div class="label">Latest Actual Structural NPV</div><div class="value" id="mTerminalNPV">—</div><div class="foot" id="mActualNPVFoot">Reconstructed from completed TopBoss results</div></div>
+      </div>
+      <div class="spacer"></div>
+      <div class="card">
+        <div class="title-row"><h3>Realtime NPV Monitor</h3><span class="badge info" id="npvMonitorBadge">—</span></div>
+        <p class="small muted">Actual Structural NPV answers: <b>“what would our NPV be if the game ended at this completed round?”</b> It is reconstructed from actual dividends and economic equity. It is not an official live ranking before the final round.</p>
+        <div class="grid g4">
+          <div class="pill">Latest actual NPV<b id="npvActual">—</b></div>
+          <div class="pill">Δ vs previous round<b id="npvDelta">—</b></div>
+          <div class="pill">Current decision NPV<b id="npvDecision">—</b></div>
+          <div class="pill">Projected terminal NPV<b id="npvTerminalProjection">—</b></div>
+        </div>
+        <div class="spacer"></div>
+        <div class="scroll">
+          <table>
+            <thead><tr><th>Round</th><th>Economic Equity</th><th>Dividend</th><th>PV Dividends</th><th>PV Terminal Equity</th><th>Structural NPV</th><th>Δ NPV</th></tr></thead>
+            <tbody id="npvHistoryBody"><tr><td colspan="7" class="muted">Sync TopBoss or import a HAR to populate round-by-round NPV.</td></tr></tbody>
+          </table>
+        </div>
       </div>
       <div class="spacer"></div>
       <div class="grid g2">
@@ -2656,6 +2674,66 @@ function v15RenderDecisionUnits(){
   text('#uEndingEquity',E.money(d.projectedEndingEquity)+' projected equity');
 }
 
+function v15ActualNPVHistory(data=v03Dataset()){
+  const fin=data?.finance||{}, rounds=Object.keys(fin).map(Number).filter(Number.isFinite).sort((a,b)=>a-b);
+  if(!rounds.length) return [];
+  const initialEquity=Number(fin["0"]?.balance?.equity||model.initialEquity||0);
+  const annualRate=Number(data?.environment?.annual_interest_rate??model.environment?.annual_interest_rate??0);
+  const rows=[]; let prev=null;
+  for(const r of rounds){
+    const f=fin[String(r)]; if(!f?.balance) continue;
+    const ee=E.economicEquity(
+      Number(f.balance.equity||0),
+      Number(f.balance.equipment_value||0),
+      Number(f.balance.recapitalized_cost||0)
+    );
+    const dividends=[];
+    for(let k=1;k<=r;k++){
+      const dv=fin[String(k)]?.cash_flow?.stock_dividend_issue;
+      dividends.push(Number(dv||0));
+    }
+    const npv=E.npv({annualRatePct:annualRate,dividends,terminalEconomicEquity:ee,initialEquity});
+    const dividend=Number(f.cash_flow?.stock_dividend_issue||0);
+    const delta=prev==null?0:npv.value-prev;
+    rows.push({round:r,ee,dividend,npv,delta,equity:Number(f.balance.equity||0)});
+    prev=npv.value;
+  }
+  return rows;
+}
+function v15CurrentDecisionNPV(){
+  try{
+    const data=v03Dataset(),history=v15ActualNPVHistory(data);
+    if(v14GameFinished()) return history.length?history[history.length-1].npv.value:NaN;
+    const round=Number(v15DecisionRound(data)),state=v03BaseState(),models=v03BehaviorModels();
+    const tr=v03Transition(state,model.decision,round,models);
+    return v03TerminalValue(tr.state).npv.value;
+  }catch(_){ return NaN; }
+}
+function v15RenderNPVMonitor(){
+  const rows=v15ActualNPVHistory(v03Dataset()),latest=rows.length?rows[rows.length-1]:null;
+  const actual=latest?.npv?.value;
+  const delta=latest?.delta;
+  const decisionNPV=v15CurrentDecisionNPV();
+  const terminal=v03LastRollingResult?.terminal?.npv?.value;
+  text('#mTerminalNPV',Number.isFinite(actual)?E.money(actual):'—');
+  text('#npvActual',Number.isFinite(actual)?E.money(actual):'—');
+  text('#npvDelta',Number.isFinite(delta)?((delta>=0?'+':'')+E.money(delta)):'—');
+  text('#npvDecision',Number.isFinite(decisionNPV)?E.money(decisionNPV):'—');
+  text('#npvTerminalProjection',Number.isFinite(terminal)?E.money(terminal):'Run optimizer');
+  text('#npvMonitorBadge',latest?'Actual through R'+latest.round:'No actual rounds');
+  const foot=$('#mActualNPVFoot');
+  if(foot) foot.textContent=latest?'Completed TopBoss result through R'+latest.round:'Reconstructed from completed TopBoss results';
+  html('#npvHistoryBody',rows.length?rows.map(x=>
+    '<tr><td>R'+x.round+'</td>'+
+    '<td>'+E.money(x.ee)+'</td>'+
+    '<td>'+E.money(x.dividend)+'</td>'+
+    '<td>'+E.money(x.npv.pvDividends)+'</td>'+
+    '<td>'+E.money(x.npv.pvTerminal)+'</td>'+
+    '<td><b>'+E.money(x.npv.value)+'</b></td>'+
+    '<td>'+(x.round===0?'—':((x.delta>=0?'+':'')+E.money(x.delta)))+'</td></tr>'
+  ).join(''):'<tr><td colspan="7" class="muted">Sync TopBoss or import a HAR to populate round-by-round NPV.</td></tr>');
+}
+
 function render(){
   const c=calculations(),s=model.state,d=model.decision;
   v15RenderDecisionUnits();
@@ -2663,7 +2741,7 @@ function render(){
   text('#mRound',`${model.currentRound} / ${model.totalRounds}`);
   text('#mCash',E.money(s.cash)); text('#mEquity',E.money(s.equity));
   text('#mCapacity',E.num(s.capacity)); text('#mConversion',Number(s.conversion||0).toFixed(4));
-  text('#mTerminalNPV',E.money(c.npv.value)); text('#mActualDividend',E.money(c.actualDiv));
+  v15RenderNPVMonitor(); text('#mActualDividend',E.money(c.actualDiv));
   text('#mNextCapacity',E.num(c.cap.total)); text('#mReplacement',E.money(c.rc));
 
   text('#rEquipmentFee',E.money(c.fee)); text('#rAddedCapacity',E.num(c.cap.added)+' units');
