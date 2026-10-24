@@ -248,6 +248,26 @@ function findCompanyArray(text){
     from=p+5;
   }
 }
+function resolveTopBossRoleFromPage(html,wanted){
+  const target=String(wanted||'').trim().toLowerCase();
+  const roles=rawAfter(String(html||''),'roles:');
+  if(roles && typeof roles==='object' && !Array.isArray(roles)){
+    for(const [key,label] of Object.entries(roles)){
+      if(String(key).toLowerCase()===target || String(label).toLowerCase()===target) return String(key);
+    }
+  }
+  if(target==='ceo') return 'ceo';
+  return target;
+}
+function resolveTopBossAreaFromPage(html,loginUrl){
+  const fromEnv=String(process.env.MBS_ARENA||'').trim();
+  if(fromEnv) return fromEnv;
+  try{
+    const fromUrl=String(new URL(loginUrl).pathname.match(/^\/login\/([^/?#]+)/i)?.[1]||'').trim();
+    if(fromUrl) return fromUrl;
+  }catch(_){}
+  return String(String(html||'').match(/\barea\s*:\s*['"]([^'"]+)['"]/i)?.[1]||'').trim();
+}
 async function getPage(path,jar){
   const res=await fetchJar(new URL(path,BASE).toString(),{
     headers:{'accept':'text/html,application/xhtml+xml','cache-control':'no-cache','pragma':'no-cache','referer':BASE+'/index'}
@@ -315,7 +335,89 @@ module.exports = async function handler(req,res){
 
     const loginAction=process.env.MBS_LOGIN_ACTION || form.action;
     const method=(process.env.MBS_LOGIN_METHOD || form.method || 'POST').toUpperCase();
+    const exactArea=resolveTopBossAreaFromPage(loginHtml,effectiveLoginUrl);
+    const exactRole=resolveTopBossRoleFromPage(loginHtml,roleWanted);
     let indexHtml=null,lastLoginStatus=null,lastFormat=null,lastLoginResponse=null,lastCookieNames=[],lastRoleValue=null,lastRoleField=null,loginAttempts=[];
+
+    async function probeAuthenticated(headers){
+      const probes=[];
+      const addProbe=value=>{
+        if(!value) return;
+        try{
+          const u=new URL(value,effectiveLoginUrl);
+          if(u.origin===new URL(BASE).origin && !probes.includes(u.toString())) probes.push(u.toString());
+        }catch(_){}
+      };
+      // HAR/browser login flow redirects to /index after code=1.
+      addProbe('/index');
+      if(process.env.MBS_HOME_URL) addProbe(process.env.MBS_HOME_URL);
+      if(exactArea) addProbe('/home/'+encodeURIComponent(exactArea));
+
+      for(const probeUrl of probes){
+        const probe=await fetchJar(probeUrl,{
+          headers:{
+            'accept':'text/html,application/xhtml+xml',
+            'cache-control':'no-cache',
+            'pragma':'no-cache',
+            'referer':effectiveLoginUrl,
+            'user-agent':headers['user-agent'],
+            'accept-language':headers['accept-language']
+          }
+        },jar);
+        const text=await probe.text();
+        const user=rawAfter(text,'user: ');
+        const loginLike=/<input[^>]+type=["']?password/i.test(text) && !/href=["']\/logout/i.test(text);
+        const signedInMarker=/href=["']\/logout/i.test(text)||/Sign out/i.test(text);
+        if(probe.ok && (user?.company_name || (!loginLike && signedInMarker))){
+          indexHtml=text;
+          return true;
+        }
+      }
+      return false;
+    }
+
+    async function tryHarExactLogin(){
+      if(!exactArea || !exactRole) return false;
+      const payload={
+        password,
+        area:exactArea,
+        role:exactRole,
+        uid:companyLogin
+      };
+      const headers={
+        'accept':'application/json, text/plain, */*',
+        'content-type':'application/json',
+        'origin':BASE,
+        'referer':effectiveLoginUrl,
+        'cache-control':'no-cache',
+        'pragma':'no-cache',
+        'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/155 Safari/537.36',
+        'accept-language':'en-US,en;q=0.9'
+      };
+      const lr=await fetchJar(loginAction,{method:'POST',headers,body:JSON.stringify(payload)},jar);
+      lastLoginStatus=lr.status;
+      lastFormat='har-json';
+      lastRoleField='role+area';
+      lastRoleValue=exactRole;
+      let loginText='';
+      try{loginText=await lr.text();}catch(_){}
+      lastLoginResponse=safeLoginResponse(loginText,lr.headers,[companyLogin,password]);
+      lastCookieNames=[...jar.keys()].slice(0,12);
+      let code=null;
+      try{code=JSON.parse(loginText)?.code;}catch(_){}
+      loginAttempts.push({
+        roleField:'role+area',
+        roleValue:exactRole,
+        areaValue:exactArea,
+        format:'har-json',
+        status:lastLoginStatus,
+        response:lastLoginResponse
+      });
+      if(lr.ok && Number(code)===1){
+        return probeAuthenticated(headers);
+      }
+      return false;
+    }
 
     async function tryLogin(format,roleField,roleValue){
       const payload={...basePayload,[roleField]:roleValue};
@@ -363,61 +465,16 @@ module.exports = async function handler(req,res){
         return true;
       }
 
-      const probes=[];
-      const addProbe=value=>{
-        if(!value) return;
-        try{
-          const u=new URL(value,effectiveLoginUrl);
-          if(u.origin===new URL(BASE).origin && !probes.includes(u.toString())) probes.push(u.toString());
-        }catch(_){}
-      };
-
-      if(lr.url){
-        try{
-          const p=new URL(lr.url).pathname;
-          if(/^\/(?:home|index)(?:\/|$)/i.test(p)) addProbe(lr.url);
-        }catch(_){}
-      }
-
-      try{
-        const json=JSON.parse(loginText);
-        for(const key of ['redirect','redirect_url','url','location','next','home']){
-          if(typeof json?.[key]==='string') addProbe(json[key]);
-          if(typeof json?.data?.[key]==='string') addProbe(json.data[key]);
-        }
-      }catch(_){}
-
-      if(process.env.MBS_HOME_URL) addProbe(process.env.MBS_HOME_URL);
-      const arena=process.env.MBS_ARENA
-        || String(new URL(effectiveLoginUrl).pathname.match(/^\/login\/([^/?#]+)/i)?.[1]||'').trim();
-      if(arena) addProbe('/home/'+encodeURIComponent(arena));
-      addProbe('/index');
-
-      for(const probeUrl of probes){
-        const probe=await fetchJar(probeUrl,{
-          headers:{
-            'accept':'text/html,application/xhtml+xml',
-            'cache-control':'no-cache',
-            'pragma':'no-cache',
-            'referer':effectiveLoginUrl,
-            'user-agent':headers['user-agent'],
-            'accept-language':headers['accept-language']
-          }
-        },jar);
-        const text=await probe.text();
-        const user=rawAfter(text,'user: ');
-        const loginLike=/<input[^>]+type=["']?password/i.test(text) && !/href=["']\/logout/i.test(text);
-        const signedInMarker=/href=["']\/logout/i.test(text)||/Sign out/i.test(text);
-        if(probe.ok && (user?.company_name || (!loginLike && signedInMarker))){
-          indexHtml=text;
-          return true;
-        }
-      }
-      return false;
+      return probeAuthenticated(headers);
     }
     const formats=form.mode==='js'?['json','form']:['form','json'];
     let authenticated=false;
-    for(const roleField of roleFieldCandidates){
+    try{
+      authenticated=await tryHarExactLogin();
+    }catch(err){
+      loginAttempts.push({roleField:'role+area',roleValue:exactRole,areaValue:exactArea,format:'har-json',status:lastLoginStatus,error:String(err?.message||err)});
+    }
+    for(const roleField of authenticated?[]:roleFieldCandidates){
       for(const roleValue of roleCandidates){
         for(const format of formats){
           try{
@@ -443,6 +500,7 @@ module.exports = async function handler(req,res){
           action:loginAction,
           companyField,passwordField,roleField:lastRoleField,roleFieldCandidates,
           roleValue:lastRoleValue,roleCandidates,
+          exactHarPayload:{area:exactArea,role:exactRole,fields:['password','area','role','uid']},
           detectedRolePayloadField:form.rolePayloadField||null,
           lastLoginStatus,lastFormat,lastLoginResponse,lastCookieNames,
           loginAttempts:loginAttempts.slice(-12)
