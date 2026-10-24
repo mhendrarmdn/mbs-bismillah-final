@@ -1310,12 +1310,13 @@ function v03BehaviorModels(maxRound=(model.appMode==='practice' ? Math.max(0,(v0
       Number(row.product_image)-cs.image,
       macro,deferred,prevShare
     ],y:Number(o.sales?.potential_demand||0)});
-    // Official timing: maintenance chosen in r-1 affects operating efficiency in r.
+    // Workbook mapping: R&D -> product quality; maintenance(r-1) -> current conversion.
+    // Do not let support budgets leak into KPIs they are not documented to drive.
     const lagMaint=Number(po.decision?.maintenance||0);
-    qRows.push({x:[Number(prev.product_quality),Math.log1p(Number(o.decision?.rd||0)),Math.log1p(lagMaint),cs.quality],y:Number(row.product_quality)});
+    qRows.push({x:[Number(prev.product_quality),Math.log1p(Number(o.decision?.rd||0)),cs.quality],y:Number(row.product_quality)});
     iRows.push({x:[Number(prev.product_image),Math.log1p(Number(o.decision?.marketing||0)),cs.image],y:Number(row.product_image)});
     const pi=Number((data.economy||[])[r]?.inflation_index||100)/100;
-    cRows.push({x:[Number(po.inventory?.efficiency||o.inventory?.efficiency||0.67),Math.log1p(Number(o.decision?.rd||0)),Math.log1p(lagMaint),pi],y:Number(o.inventory?.efficiency||0.67)});
+    cRows.push({x:[Number(po.inventory?.efficiency||o.inventory?.efficiency||0.67),Math.log1p(lagMaint),pi],y:Number(o.inventory?.efficiency||0.67)});
   }
   return {
     own,maxRound,
@@ -1436,12 +1437,13 @@ function v03PredictBehavior(state,decision,round,models=v03BehaviorModels()){
   let quality=state.productQuality, image=state.productImage, conversion=state.conversion;
   const priors=v13CompetitorPriorModels(), hasComp=Number(cs.count||0)>0 && Number(cs.price||0)>0;
   const lagMaint=Math.max(0,Number(state.maintenanceLag||0));
-  if(models.quality) quality=models.quality.predict([state.productQuality,Math.log1p(Number(decision.rd||0)),Math.log1p(lagMaint),cs.quality]);
-  else if(hasComp) quality=priors.quality.predict([state.productQuality,Math.log1p(Number(decision.rd||0)),Math.log1p(lagMaint),cs.quality]);
+  const logRD=Math.log1p(Number(decision.rd||0)), logMaint=Math.log1p(lagMaint);
+  if(models.quality) quality=models.quality.predict([state.productQuality,logRD,cs.quality]);
+  else if(hasComp) quality=priors.quality.predict([state.productQuality,logRD,V13_COMPETITOR_PRIOR.quality.means[2],cs.quality]);
   if(models.image) image=models.image.predict([state.productImage,Math.log1p(Number(decision.marketing||0)),cs.image]);
   else if(hasComp) image=priors.image.predict([state.productImage,Math.log1p(Number(decision.marketing||0)),cs.image]);
-  if(models.conversion) conversion=models.conversion.predict([state.conversion,Math.log1p(Number(decision.rd||0)),Math.log1p(lagMaint),pi]);
-  else conversion=priors.conversion.predict([state.conversion,Math.log1p(Number(decision.rd||0)),Math.log1p(lagMaint),pi]);
+  if(models.conversion) conversion=models.conversion.predict([state.conversion,logMaint,pi]);
+  else conversion=priors.conversion.predict([state.conversion,V13_COMPETITOR_PRIOR.conversion.means[1],logMaint,pi]);
   quality=Math.min(2,Math.max(0.05,quality)); image=Math.min(2,Math.max(0.05,image)); conversion=Math.min(0.82,Math.max(0.55,conversion));
   let demand;
   if(models.demand){
@@ -1581,7 +1583,8 @@ function v03CandidateDecisions(state,round,models,controls){
     const b=v03PredictBehavior(state,seed,round,models);
     const sigma=Math.max(25000,Number(models?.demand?.residualSd||models?.demand?.mae||60000));
     const z=controls.risk==='cashsafe'?[-0.25,0.15,0.55]:controls.risk==='npv'?[-0.35,0.10,0.45]:[-0.30,0.10,0.50];
-    const productionChoices=[...new Set(z.map(k=>Math.max(0,Math.round((b.demand+k*sigma-Number(state.finishedGoods||0))/1000)*1000)))];
+    const productionCeiling=Math.max(0,1.5*Number(state.capacity||0));
+    const productionChoices=[...new Set(z.map(k=>Math.max(0,Math.min(productionCeiling,Math.round((b.demand+k*sigma-Number(state.finishedGoods||0))/1000)*1000))))];
     for(const requestedProduction of productionChoices){
       const d={...seed,production:requestedProduction};
       const prod=Math.min(d.production,1.5*state.capacity,state.rawMaterial*b.conversion);
