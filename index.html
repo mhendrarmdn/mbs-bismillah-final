@@ -2137,8 +2137,17 @@ function v09RunScenarioEnsemble(){
       const res=v03RunRollingOptimizer();
       const d=res?.best?.path?.[0]?.decision;
       if(d){
-        const key=v09DecisionKey(d);
-        if(!seen.has(key)){seen.add(key);candidates.push({source:labels[sc],decision:{...d}});}
+        const state=v03BaseState(),round=Number(v15DecisionRound(v03Dataset()));
+        const cap=Math.max(0,1.5*Number(state.capacity||0));
+        const prodVariants=[-0.25,0,0.50,1.25];
+        for(const z of prodVariants){
+          const variant={...d,production:Math.max(0,Math.min(cap,Math.round((Number(d.production||0)+z*demandSigma)/1000)*1000))};
+          const b=v03PredictBehavior(state,variant,round,models);
+          const realized=Math.min(Number(variant.production||0),cap,Number(state.rawMaterial||0)*Math.max(0.01,Number(b.conversion||state.conversion||0.67)));
+          variant.procurement=v03SmartProcurement(state,b,realized,round);
+          const key=v09DecisionKey(variant);
+          if(!seen.has(key)){seen.add(key);candidates.push({source:labels[sc]+(z===0?'':' buffer '+(z>0?'+':'')+z.toFixed(2)+'σ'),decision:variant});}
+        }
       }
     }
     const current=v09BaselineDecision(),ck=v09DecisionKey(current);
