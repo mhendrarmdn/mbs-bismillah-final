@@ -1244,7 +1244,7 @@ function v03InferOwnCompany(data=v03Dataset()){
   return ranked[0][0];
 }
 function v03CompStats(data,round,ownName){
-  const latestObservable=Math.max(0,Number(model.currentRound||1)-1);
+  const latestObservable=Math.max(0,Number(v15DecisionRound(data)||1)-1);
   const future=Number(round)>latestObservable;
   const requested=future?latestObservable:Number(round);
   let rows=v03RoundRows(data,requested);
@@ -1294,7 +1294,7 @@ function v03LinearFit(rows,lambda=1.5){
   const residualSd=Math.sqrt(sse/Math.max(1,rows.length-1));
   return {beta,means,sds,predict,r2:1-sse/sst,mae,rmse,residualSd,n:rows.length};
 }
-function v03BehaviorModels(maxRound=(model.appMode==='practice' ? Math.max(0,(v03Dataset().operation||[]).length-1) : Math.max(0,Number(model.currentRound||1)-1))){
+function v03BehaviorModels(maxRound=(model.appMode==='practice' ? Math.max(0,(v03Dataset().operation||[]).length-1) : Math.max(0,Number(v15DecisionRound(v03Dataset())||1)-1))){
   const data=v03Dataset(), op=data.operation||[], own=v03InferOwnCompany(data);
   if(!own || !v03North(data) || op.length<4) return {own,demand:null,quality:null,image:null,conversion:null};
   const dRows=[],qRows=[],iRows=[],cRows=[];
@@ -1310,10 +1310,12 @@ function v03BehaviorModels(maxRound=(model.appMode==='practice' ? Math.max(0,(v0
       Number(row.product_image)-cs.image,
       macro,deferred,prevShare
     ],y:Number(o.sales?.potential_demand||0)});
-    qRows.push({x:[Number(prev.product_quality),Math.log1p(Number(o.decision?.rd||0)),Math.log1p(Number(o.decision?.maintenance||0)),cs.quality],y:Number(row.product_quality)});
+    // Official timing: maintenance chosen in r-1 affects operating efficiency in r.
+    const lagMaint=Number(po.decision?.maintenance||0);
+    qRows.push({x:[Number(prev.product_quality),Math.log1p(Number(o.decision?.rd||0)),Math.log1p(lagMaint),cs.quality],y:Number(row.product_quality)});
     iRows.push({x:[Number(prev.product_image),Math.log1p(Number(o.decision?.marketing||0)),cs.image],y:Number(row.product_image)});
     const pi=Number((data.economy||[])[r]?.inflation_index||100)/100;
-    cRows.push({x:[Number(po.inventory?.efficiency||o.inventory?.efficiency||0.67),Math.log1p(Number(o.decision?.rd||0)),Math.log1p(Number(o.decision?.maintenance||0)),pi],y:Number(o.inventory?.efficiency||0.67)});
+    cRows.push({x:[Number(po.inventory?.efficiency||o.inventory?.efficiency||0.67),Math.log1p(Number(o.decision?.rd||0)),Math.log1p(lagMaint),pi],y:Number(o.inventory?.efficiency||0.67)});
   }
   return {
     own,maxRound,
@@ -1339,7 +1341,7 @@ function v03Macro(round){
   return 1;
 }
 function v03BaseState(){
-  const data=v03Dataset(), prior=Math.max(0,Number(model.currentRound)-1), fin=data.finance?.[String(prior)], op=data.operation?.[prior];
+  const data=v03Dataset(), decisionRound=Number(v15DecisionRound(data)), prior=Math.max(0,decisionRound-1), fin=data.finance?.[String(prior)], op=data.operation?.[prior];
   const models=v03BehaviorModels(), own=models.own, row=own?v03OwnSalesRow(data,prior,own):null;
   const baseLabor=Number(fin?.income?.unit_labor_cost||v02CostCalibration().laborUnit||1.5);
   const priorPI=Number(data.economy?.[prior]?.inflation_index||100)/100 || Number(model.currentPriceIndex||1);
@@ -1350,11 +1352,11 @@ function v03BaseState(){
     rawMaterial:Number(model.state.rawMaterial||0),rawMaterialUnitCost:Number(model.state.rawMaterialUnitCost||fin?.balance?.mat_unit_cost||1),
     finishedGoods:Number(model.state.finishedGoods||0),finishedGoodsUnitCost:Number(model.state.finishedGoodsUnitCost||fin?.balance?.finished_goods_unit_cost||3),
     equipmentBV:Number(model.state.equipmentBV||0),capacity:Number(model.state.capacity||0),replacementCost:Number(model.state.replacementCost||0),
-    conversion:Number(model.state.conversion||0.67),normalDebt:Number(model.state.normalDebt||0),abnormalDebt:Number(model.state.abnormalDebt||0),
+    conversion:Number(model.state.conversion||0.67),maintenanceLag:Number(op?.decision?.maintenance||model.state.maintenanceLag||0),normalDebt:Number(model.state.normalDebt||0),abnormalDebt:Number(model.state.abnormalDebt||0),
     productQuality:Number(model.state.productQuality||row?.product_quality||0.3),productImage:Number(model.state.productImage||row?.product_image||0.6),
     marketShare:Number(model.state.marketShare||row?.market_share||0),materialPurchasePrice:Number(model.state.materialPurchasePrice||fin?.cash_flow?.mat_price||1),
-    laborUnit:v05LaborUnit(Number(model.currentRound))*Number(model.calibration?.laborScale||1),deferredDemand:Math.max(0,Number(op?.sales?.potential_demand||0)-Number(op?.sales?.volume||0))*0.5,
-    dividends:[...(model.actualDividends||[])].slice(0,Math.max(0,Number(model.currentRound)-1)),
+    laborUnit:v05LaborUnit(decisionRound)*Number(model.calibration?.laborScale||1),deferredDemand:Math.max(0,Number(op?.sales?.potential_demand||0)-Number(op?.sales?.volume||0))*0.5,
+    dividends:[...(model.actualDividends||[])].slice(0,Math.max(0,decisionRound-1)),
     maxOverdraft:Number(model.state.abnormalDebt||0), path:[]
   };
 }
@@ -1433,12 +1435,13 @@ function v03PredictBehavior(state,decision,round,models=v03BehaviorModels()){
   const data=v03Dataset(), cs=v03CompStats(data,round,models.own), pi=v03Index(round);
   let quality=state.productQuality, image=state.productImage, conversion=state.conversion;
   const priors=v13CompetitorPriorModels(), hasComp=Number(cs.count||0)>0 && Number(cs.price||0)>0;
-  if(models.quality) quality=models.quality.predict([state.productQuality,Math.log1p(Number(decision.rd||0)),Math.log1p(Number(decision.maintenance||0)),cs.quality]);
-  else if(hasComp) quality=priors.quality.predict([state.productQuality,Math.log1p(Number(decision.rd||0)),Math.log1p(Number(decision.maintenance||0)),cs.quality]);
+  const lagMaint=Math.max(0,Number(state.maintenanceLag||0));
+  if(models.quality) quality=models.quality.predict([state.productQuality,Math.log1p(Number(decision.rd||0)),Math.log1p(lagMaint),cs.quality]);
+  else if(hasComp) quality=priors.quality.predict([state.productQuality,Math.log1p(Number(decision.rd||0)),Math.log1p(lagMaint),cs.quality]);
   if(models.image) image=models.image.predict([state.productImage,Math.log1p(Number(decision.marketing||0)),cs.image]);
   else if(hasComp) image=priors.image.predict([state.productImage,Math.log1p(Number(decision.marketing||0)),cs.image]);
-  if(models.conversion) conversion=models.conversion.predict([state.conversion,Math.log1p(Number(decision.rd||0)),Math.log1p(Number(decision.maintenance||0)),pi]);
-  else conversion=priors.conversion.predict([state.conversion,Math.log1p(Number(decision.rd||0)),Math.log1p(Number(decision.maintenance||0)),pi]);
+  if(models.conversion) conversion=models.conversion.predict([state.conversion,Math.log1p(Number(decision.rd||0)),Math.log1p(lagMaint),pi]);
+  else conversion=priors.conversion.predict([state.conversion,Math.log1p(Number(decision.rd||0)),Math.log1p(lagMaint),pi]);
   quality=Math.min(2,Math.max(0.05,quality)); image=Math.min(2,Math.max(0.05,image)); conversion=Math.min(0.82,Math.max(0.55,conversion));
   let demand;
   if(models.demand){
@@ -1491,7 +1494,7 @@ function v03Transition(state,decision,round,models=v03BehaviorModels(),shock=nul
   const rmUsed=behavior.conversion>0?production/behavior.conversion:0;
   const rmBeforePurchase=Math.max(0,Number(state.rawMaterial||0)-rmUsed);
   const procurement=Math.max(0,Number(decision.procurement||0));
-  const rmPriceKnownNow=Number(round)===Number(model.currentRound) && Number(state.materialPurchasePrice||0)>0;
+  const rmPriceKnownNow=Number(round)===Number(v15DecisionRound(v03Dataset())) && Number(state.materialPurchasePrice||0)>0;
   const purchasePrice=Math.max(0.01,Number(state.materialPurchasePrice||v07ForecastRMPrice(round)))*(rmPriceKnownNow?1:(shock?.rawPriceMult||1));
   const endRM=rmBeforePurchase+procurement;
   const endRMValue=rmBeforePurchase*Number(state.rawMaterialUnitCost||1)+procurement*purchasePrice;
@@ -1541,7 +1544,7 @@ function v03Transition(state,decision,round,models=v03BehaviorModels(),shock=nul
   const next={
     round:round+1,cash:cashEnd,equity,rawMaterial:endRM,rawMaterialUnitCost:endRMUnit,
     finishedGoods:endFG,finishedGoodsUnitCost:endFGUnit,equipmentBV,capacity:nextCapacity,replacementCost,
-    conversion:behavior.conversion,normalDebt,abnormalDebt,productQuality:behavior.quality,productImage:behavior.image,
+    conversion:behavior.conversion,maintenanceLag:Number(decision.maintenance||0),normalDebt,abnormalDebt,productQuality:behavior.quality,productImage:behavior.image,
     marketShare,materialPurchasePrice:nextPurchasePrice,laborUnit:nextLaborUnit,
     deferredDemand:Math.max(0,behavior.demand-sales)*0.5,
     dividends:[...(state.dividends||[]),actualDividend],maxOverdraft:Math.max(Number(state.maxOverdraft||0),abnormalDebt),
@@ -1568,19 +1571,27 @@ function v03CandidateDecisions(state,round,models,controls){
   const prices=[Number(base.price||6.5)-step,Number(base.price||6.5),Number(base.price||6.5)+step].map(x=>Math.max(3,Math.min(9,Math.round(x*100)/100)));
   const mult=controls.range==='tight'?[0.9,1,1.1]:controls.range==='wide'?[0.6,1,1.4]:[0.75,1,1.25];
   const maintMult=String(model.environment.maintenance_influence||'Low')==='Low'?[0.7,1.0]:[0.8,1.15];
+  const maintenanceChoices=round===Number(model.totalRounds)
+    ? [0]
+    : maintMult.map(m=>Math.max(0,Math.round(Number(base.maintenance||75000)*m/5000)*5000));
   const equipmentChoices=round===Number(model.totalRounds)?[0,50000]:[0,Math.max(100000,Math.round(Number(base.equipment||0)/50000)*50000)];
   const out=[];
-  for(const price of prices) for(const ma of mult) for(const rr of mult) for(const mn of maintMult) for(const equipment of equipmentChoices){
-    const d={...base,price,marketing:Math.max(0,Math.round(Number(base.marketing||150000)*ma/5000)*5000),rd:Math.max(0,Math.round(Number(base.rd||150000)*rr/5000)*5000),maintenance:Math.max(0,Math.round(Number(base.maintenance||75000)*mn/5000)*5000),equipment};
-    const b=v03PredictBehavior(state,d,round,models);
-    d.production=Math.max(0,Math.round((b.demand*1.01-Number(state.finishedGoods||0))/1000)*1000);
-    const prod=Math.min(d.production,1.5*state.capacity,state.rawMaterial*b.conversion);
-    d.procurement=v03SmartProcurement(state,b,prod,round);
-    const maxDiv=Math.max(0,Number(state.equity||0)-Number(model.equityFloor||0));
-    const reserve=controls.risk==='cashsafe'?1500000:controls.risk==='npv'?500000:900000;
-    const safeDiv=Math.min(maxDiv,Math.max(0,Number(state.cash||0)-reserve));
-    for(const dividend of (round===Number(model.totalRounds)?[0]:[0,Math.round(safeDiv/50000)*50000])){
-      out.push({...d,dividend:Math.max(0,dividend)});
+  for(const price of prices) for(const ma of mult) for(const rr of mult) for(const maintenance of maintenanceChoices) for(const equipment of equipmentChoices){
+    const seed={...base,price,marketing:Math.max(0,Math.round(Number(base.marketing||150000)*ma/5000)*5000),rd:Math.max(0,Math.round(Number(base.rd||150000)*rr/5000)*5000),maintenance,equipment};
+    const b=v03PredictBehavior(state,seed,round,models);
+    const sigma=Math.max(25000,Number(models?.demand?.residualSd||models?.demand?.mae||60000));
+    const z=controls.risk==='cashsafe'?[-0.25,0.15,0.55]:controls.risk==='npv'?[-0.35,0.10,0.45]:[-0.30,0.10,0.50];
+    const productionChoices=[...new Set(z.map(k=>Math.max(0,Math.round((b.demand+k*sigma-Number(state.finishedGoods||0))/1000)*1000)))];
+    for(const requestedProduction of productionChoices){
+      const d={...seed,production:requestedProduction};
+      const prod=Math.min(d.production,1.5*state.capacity,state.rawMaterial*b.conversion);
+      d.procurement=v03SmartProcurement(state,b,prod,round);
+      const maxDiv=Math.max(0,Number(state.equity||0)-Number(model.equityFloor||0));
+      const reserve=controls.risk==='cashsafe'?1500000:controls.risk==='npv'?500000:900000;
+      const safeDiv=Math.min(maxDiv,Math.max(0,Number(state.cash||0)-reserve));
+      for(const dividend of (round===Number(model.totalRounds)?[0]:[0,Math.round(safeDiv/50000)*50000])){
+        out.push({...d,dividend:Math.max(0,dividend)});
+      }
     }
   }
   return out;
@@ -1604,7 +1615,7 @@ function v03RunRollingOptimizer(){
   const controls={beam:Number($('#rollBeam').value||16),risk:$('#rollRisk').value||'balanced',range:$('#rollRange').value||'normal'};
   const models=v03BehaviorModels();
   let beam=[v03BaseState()];
-  const start=Number(model.currentRound), end=Number(model.totalRounds);
+  const start=Number(v15DecisionRound(v03Dataset())), end=Number(model.totalRounds);
   const totalCandidates={count:0};
   for(let round=start;round<=end;round++){
     const next=[];
@@ -1628,7 +1639,7 @@ function v03RunRollingOptimizer(){
   return {best,terminal,models,candidates:totalCandidates.count,controls};
 }
 function v03RenderRollingDiagnostics(){
-  const m=v03BehaviorModels(), data=v03Dataset(), cs=v03CompStats(data,Math.max(0,Number(model.currentRound)-1),m.own);
+  const m=v03BehaviorModels(), data=v03Dataset(), decisionRound=Number(v15DecisionRound(data)), cs=v03CompStats(data,Math.max(0,decisionRound-1),m.own);
   text('#rollCompany',m.own||'HAR needed');
   text('#rollDemandR2',m.demand?m.demand.r2.toFixed(3):'—');
   text('#rollConvR2',m.conversion?m.conversion.r2.toFixed(3):'—');
@@ -1636,7 +1647,7 @@ function v03RenderRollingDiagnostics(){
   text('#rollImageR2',m.image?m.image.r2.toFixed(3):'—');
   text('#rollDemandMAE',m.demand?E.num(m.demand.mae):'—');
   text('#rollCompPrice',cs.price?E.money(cs.price):'—');
-  text('#rollRemaining',Math.max(0,Number(model.totalRounds)-Number(model.currentRound)+1));
+  text('#rollRemaining',Math.max(0,Number(model.totalRounds)-Number(v15DecisionRound(v03Dataset()))+1));
   const source=m.demand?'Current-game calibrated':'Simulation-1 prior assisted';
   const el=$('#rollStatus'); if(el && !v03LastRollingResult) el.innerHTML='<b>'+source+'.</b> Current-game demand rows: '+(m.rows?.demand||0)+'. Run the search when ready.';
 }
@@ -1967,7 +1978,7 @@ function v10Confidence(){
   let ratio=score/parts;
   if(model.appMode==='competition' && !hasComp) ratio=Math.min(ratio,0.35);
   if(model.appMode==='competition' && hasComp){
-    const completed=Math.max(0,Number(model.currentRound||1)-1);
+    const completed=Math.max(0,Number(v15DecisionRound(v03Dataset())||1)-1);
     const reconciled=Number(model.calibration?.lastReconciledRound||0);
     if(completed===0) ratio=Math.min(ratio,0.45);
     else if(completed===1) ratio=Math.min(ratio,0.68);
@@ -1980,6 +1991,9 @@ function v10RiskFlags(decision){
   const conv=Math.max(0.01,Number(state.conversion||0.67));
   if(Number(decision.production||0)>1.5*Number(state.capacity||0)) flags.push({level:'bad',text:'BLOCK: production exceeds modeled 150% overtime ceiling.'});
   if(Number(decision.production||0)/conv>Number(state.rawMaterial||0)) flags.push({level:'bad',text:'BLOCK: modeled current RM availability may not cover production.'});
+  const decisionRound=Number(v15DecisionRound(v03Dataset()));
+  if(decisionRound===Number(model.totalRounds) && Number(decision.maintenance||0)>0) flags.push({level:'warn',text:'Final-round maintenance has no next-round operating benefit; verify before spending.'});
+  if(decisionRound===Number(model.totalRounds) && Number(decision.procurement||0)>0) flags.push({level:'warn',text:'Final-round procurement cannot support current production; evaluate ordering cost versus terminal RM inventory value.'});
   const div=E.actualDividend(decision.dividend,state.equity,model.equityFloor);
   if(div<Number(decision.dividend||0)) flags.push({level:'warn',text:'Dividend is likely capped to '+E.money(div)+'.'});
   if(Number(model.currentRound)===Number(model.totalRounds)&&Number(decision.procurement||0)>0) flags.push({level:'warn',text:'Final-round procurement is non-zero.'});
@@ -2308,7 +2322,7 @@ function v04HistoricalStartState(round){
     equipmentBV:Number(pf.balance?.equipment_value||0),
     capacity:Number(po.production?.production_capacity_next||0),
     replacementCost:Number(pf.balance?.recapitalized_cost||0),
-    conversion:Number(po.inventory?.efficiency||0.67),
+    conversion:Number(po.inventory?.efficiency||0.67),maintenanceLag:Number(po.decision?.maintenance||0),
     normalDebt:Number(pf.balance?.normal_debt||0),abnormalDebt:Number(pf.balance?.abnormal_debt||0),
     productQuality:Number(row?.product_quality||0.3),productImage:Number(row?.product_image||0.6),
     marketShare:Number(row?.market_share||0),
@@ -2449,21 +2463,22 @@ function v04ExplainFirstDecision(res){
 }
 
 function v03FinalCandidateSearch(){
-  if(Number(model.currentRound)!==Number(model.totalRounds)){
+  const round=Number(v15DecisionRound(v03Dataset()));
+  if(round!==Number(model.totalRounds)){
     html('#finalSearchBody','<tr><td colspan="11" class="muted">Final-round search is disabled before the terminal round.</td></tr>');
-    html('#finalSearchStatus','<b>Not a terminal round.</b> Use Rolling Optimizer for R1–R3.');
+    html('#finalSearchStatus','<b>Not a terminal round.</b> Use Rolling Optimizer before the final round.');
     return [];
   }
   const models=v03BehaviorModels(), state=v03BaseState(), d={...model.decision};
   const prices=[]; for(let x=-0.30;x<=0.3001;x+=0.10) prices.push(Math.max(3,Math.min(9,Math.round((Number(d.price||0)+x)*100)/100)));
-  const mm=[0.6,0.8,1.0,1.2,1.4], rm=[0.6,0.8,1.0,1.2,1.4], maint=[0.6,0.8,1.0,1.2];
+  const mm=[0.6,0.8,1.0,1.2,1.4], rm=[0.6,0.8,1.0,1.2,1.4], maint=[0];
   const eq=[0,50000,100000,150000,Number(d.equipment||0)].filter((v,i,a)=>a.indexOf(v)===i);
   const out=[];
   for(const price of prices) for(const ma of mm) for(const rd of rm) for(const mn of maint) for(const equipment of eq){
     const x={...d,price,marketing:Math.round(Number(d.marketing||0)*ma),rd:Math.round(Number(d.rd||0)*rd),maintenance:Math.round(Number(d.maintenance||0)*mn),equipment,procurement:0,dividend:0};
-    const b=v03PredictBehavior(state,x,Number(model.currentRound),models);
+    const b=v03PredictBehavior(state,x,round,models);
     x.production=Math.max(0,Math.round((b.demand-Number(state.finishedGoods||0))/1000)*1000);
-    const tr=v03Transition(state,x,Number(model.currentRound),models), terminal=v03TerminalValue(tr.state);
+    const tr=v03Transition(state,x,round,models), terminal=v03TerminalValue(tr.state);
     out.push({decision:x,transition:tr,terminal,demand:b.demand});
   }
   out.sort((a,b)=>b.terminal.npv.value-a.terminal.npv.value);
