@@ -117,10 +117,26 @@ function parseJsLogin(html,loginUrl){
     }
   }
   if(!action) return null;
+
+  let rolePayloadField=null;
+  const actionNeedle=new URL(action).pathname;
+  const actionPos=src.indexOf(actionNeedle);
+  const actionWindow=actionPos>=0?src.slice(Math.max(0,actionPos-3500),actionPos+5000):src;
+  const rolePayloadPatterns=[
+    /([A-Za-z_$][\w$]*)\s*:\s*(?:this|that|vm|app|login|form)\.area\b/i,
+    /([A-Za-z_$][\w$]*)\s*:\s*(?:this|that|vm|app|login|form)\.role\b/i,
+    /["']([^"']+)["']\s*:\s*(?:this|that|vm|app|login|form)\.area\b/i,
+    /["']([^"']+)["']\s*:\s*(?:this|that|vm|app|login|form)\.role\b/i
+  ];
+  for(const re of rolePayloadPatterns){
+    const m=actionWindow.match(re);
+    if(m?.[1]){ rolePayloadField=m[1]; break; }
+  }
+
   const csrf=src.match(/<meta\b[^>]*name=["']csrf-token["'][^>]*content=["']([^"']+)["']/i)?.[1]
     ||src.match(/<meta\b[^>]*content=["']([^"']+)["'][^>]*name=["']csrf-token["']/i)?.[1]
     ||null;
-  return {mode:'js',action,method:'POST',fields:{},companyField,passwordField,roleField,roleOptions,submitField:null,csrf,detectedBy};
+  return {mode:'js',action,method:'POST',fields:{},companyField,passwordField,roleField,rolePayloadField,roleOptions,submitField:null,csrf,detectedBy};
 }
 function loginDiagnostics(html,loginUrl){
   const src=String(html||'');
@@ -145,7 +161,7 @@ function loginDiagnostics(html,loginUrl){
   };
 }
 
-function resolveRoleCandidates(form,wanted){
+function resolveRoleCandidates(form,wanted,source=''){
   const raw=String(wanted||'').trim();
   const target=raw.toLowerCase();
   const opts=(form.roleOptions||[]).filter(o=>o.value||o.text);
@@ -160,33 +176,25 @@ function resolveRoleCandidates(form,wanted){
     if(hit && !/\{\{.*\}\}/.test(String(hit.text||'')) && String(hit.value||'')!=='index') add(hit.value);
   }
 
-  // TopBoss A7 uses a Vue template like:
-  // <option v-for="(item,index) ..." :value="index">{{item}}</option>
-  // Static HTML therefore exposes the literal word "index", while the browser
-  // actually submits the numeric option index. The visible order is stable.
-  const dynamicIndex=opts.some(o=>String(o.value)==='index' || /\{\{\s*item\s*\}\}/i.test(String(o.text||'')));
-  if(dynamicIndex){
-    const roleIndex={
-      'ceo':'0',
-      'sales manager':'1',
-      'planning manager':'2',
-      'purchasing manager':'3',
-      'production manager':'4',
-      'financial manager':'5',
-      'consultant':'6'
-    };
-    if(roleIndex[target]!=null) add(roleIndex[target]);
+  const escaped=raw.replace(/[.*+?^$\{\}()|[\]\\]/g,'\\$&');
+  if(escaped){
+    const keyBefore=new RegExp('(?:^|[,{\\s])(?:["\\\']?)([A-Za-z0-9_-]+)(?:["\\\']?)\\s*:\\s*["\\\']'+escaped+'["\\\']','i');
+    const keyAfter=new RegExp('["\\\']'+escaped+'["\\\']\\s*:\\s*["\\\']?([A-Za-z0-9_-]+)["\\\']?','i');
+    const km=String(source||'').match(keyBefore)||String(source||'').match(keyAfter);
+    if(km?.[1]) add(km[1]);
   }
 
-  // Keep the configured value as a fallback for arenas whose backend accepts
-  // role labels directly instead of numeric Vue indexes.
+  const roleOrder=['ceo','sales manager','planning manager','purchasing manager','production manager','financial manager','consultant'];
+  const ordinal=roleOrder.indexOf(target);
+  const dynamicIndex=opts.some(o=>String(o.value)==='index' || /\{\{\s*item\s*\}\}/i.test(String(o.text||'')));
+  if(dynamicIndex && ordinal>=0){
+    add(String(ordinal+1));
+    add(String(ordinal));
+  }
+
   if(raw) add(raw);
-
-  const staticValues=opts
-    .map(o=>String(o.value||'').trim())
-    .filter(v=>v && v!=='index' && !/^\{\{.*\}\}$/.test(v));
+  const staticValues=opts.map(o=>String(o.value||'').trim()).filter(v=>v && v!=='index' && !/^\{\{.*\}\}$/.test(v));
   if(staticValues.length===1) add(staticValues[0]);
-
   return out;
 }
 function safeLoginResponse(text,headers,secrets=[]){
@@ -281,12 +289,21 @@ module.exports = async function handler(req,res){
 
     const companyField=process.env.MBS_COMPANY_FIELD || form.companyField;
     const passwordField=process.env.MBS_PASSWORD_FIELD || form.passwordField;
-    const roleField=process.env.MBS_ROLE_FIELD || form.roleField;
-    const roleCandidates=resolveRoleCandidates(form,roleWanted);
-    if(!companyField||!passwordField||!roleField||!roleCandidates.length){
+    const roleFieldCandidates=[];
+    const addRoleField=v=>{
+      const s=String(v||'').trim();
+      if(s && !roleFieldCandidates.includes(s)) roleFieldCandidates.push(s);
+    };
+    addRoleField(process.env.MBS_ROLE_FIELD);
+    addRoleField(form.rolePayloadField);
+    addRoleField('role');
+    addRoleField(form.roleField);
+    addRoleField('area');
+    const roleCandidates=resolveRoleCandidates(form,roleWanted,loginHtml);
+    if(!companyField||!passwordField||!roleFieldCandidates.length||!roleCandidates.length){
       return res.status(502).json({
         ok:false,error:'LOGIN_FIELDS_NOT_DETECTED',
-        detected:{companyField,passwordField,roleField,roleCandidates,roleOptions:(form.roleOptions||[]).map(o=>({value:o.value,text:o.text}))}
+        detected:{companyField,passwordField,roleFieldCandidates,roleCandidates,roleOptions:(form.roleOptions||[]).map(o=>({value:o.value,text:o.text}))}
       });
     }
 
@@ -298,10 +315,11 @@ module.exports = async function handler(req,res){
 
     const loginAction=process.env.MBS_LOGIN_ACTION || form.action;
     const method=(process.env.MBS_LOGIN_METHOD || form.method || 'POST').toUpperCase();
-    let indexHtml=null,lastLoginStatus=null,lastFormat=null,lastLoginResponse=null,lastCookieNames=[],lastRoleValue=null,loginAttempts=[];
+    let indexHtml=null,lastLoginStatus=null,lastFormat=null,lastLoginResponse=null,lastCookieNames=[],lastRoleValue=null,lastRoleField=null,loginAttempts=[];
 
-    async function tryLogin(format,roleValue){
+    async function tryLogin(format,roleField,roleValue){
       const payload={...basePayload,[roleField]:roleValue};
+      lastRoleField=roleField;
       lastRoleValue=roleValue;
       const headers={
         'accept':'text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8',
@@ -399,15 +417,18 @@ module.exports = async function handler(req,res){
     }
     const formats=form.mode==='js'?['json','form']:['form','json'];
     let authenticated=false;
-    for(const roleValue of roleCandidates){
-      for(const format of formats){
-        try{
-          const ok=await tryLogin(format,roleValue);
-          loginAttempts.push({roleValue,format,status:lastLoginStatus,response:lastLoginResponse});
-          if(ok){authenticated=true;break;}
-        }catch(err){
-          loginAttempts.push({roleValue,format,status:lastLoginStatus,error:String(err?.message||err)});
+    for(const roleField of roleFieldCandidates){
+      for(const roleValue of roleCandidates){
+        for(const format of formats){
+          try{
+            const ok=await tryLogin(format,roleField,roleValue);
+            loginAttempts.push({roleField,roleValue,format,status:lastLoginStatus,response:lastLoginResponse});
+            if(ok){authenticated=true;break;}
+          }catch(err){
+            loginAttempts.push({roleField,roleValue,format,status:lastLoginStatus,error:String(err?.message||err)});
+          }
         }
+        if(authenticated) break;
       }
       if(authenticated) break;
     }
@@ -420,9 +441,11 @@ module.exports = async function handler(req,res){
           mode:form.mode||'form',
           detectedBy:form.detectedBy||null,
           action:loginAction,
-          companyField,passwordField,roleField,roleValue:lastRoleValue,roleCandidates,
+          companyField,passwordField,roleField:lastRoleField,roleFieldCandidates,
+          roleValue:lastRoleValue,roleCandidates,
+          detectedRolePayloadField:form.rolePayloadField||null,
           lastLoginStatus,lastFormat,lastLoginResponse,lastCookieNames,
-          loginAttempts:loginAttempts.slice(-6)
+          loginAttempts:loginAttempts.slice(-12)
         },
         diagnostics:loginDiagnostics(loginHtml,effectiveLoginUrl)
       });
